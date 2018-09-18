@@ -14,7 +14,7 @@ const Storage = require('subspace-storage').default
 class Subspace extends EventEmitter {
 
   // class constructor
-  constructor(storage, profile) {
+  constructor() {
     super()
     this.storage = new Storage(adapter = 'rocks')
     this.profile = profile 
