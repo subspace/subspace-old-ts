@@ -25,45 +25,45 @@ class Subspace extends EventEmitter {
 
     // listen for sub-module events and emit corresponding module level events
     
-    this.rpc.on('put', (record) => {
-      // emitted when this node receives a put request
-      this.emit('put', record)
-    })
+    // this.rpc.on('put', (record) => {
+    //   // emitted when this node receives a put request
+    //   this.emit('put', record)
+    // })
     
-    this.rpc.on('get', (record) => {
-      // emitted when this node receives a get request
-      this.emit('get', record)
-    })
+    // this.rpc.on('get', (record) => {
+    //   // emitted when this node receives a get request
+    //   this.emit('get', record)
+    // })
     
-    this.tracker.on('join', (node) => {
-      // emitted when this node detects a new host has joined the network
-      this.emit('join', node)
-    })
+    // this.tracker.on('join', (node) => {
+    //   // emitted when this node detects a new host has joined the network
+    //   this.emit('join', node)
+    // })
     
-    this.tracker.on('leave', (node) => {
-      // emitted when this node detects an existing host has left the network
-      this.emit('leave', node)
-    })
+    // this.tracker.on('leave', (node) => {
+    //   // emitted when this node detects an existing host has left the network
+    //   this.emit('leave', node)
+    // })
     
-    this.tracker.on('failure', (node) => {
-      // emitted when this node detects that an exisiting node has failed
-      this.emit('failure', node)
-    })
+    // this.tracker.on('failure', (node) => {
+    //   // emitted when this node detects that an exisiting node has failed
+    //   this.emit('failure', node)
+    // })
     
-    this.transport.on('neighbor', (node) => {
-      // emitted when this node connects to a new neighboring host
-      this.emit('neighbor', node)
-    })
+    // this.transport.on('neighbor', (node) => {
+    //   // emitted when this node connects to a new neighboring host
+    //   this.emit('neighbor', node)
+    // })
     
-    this.ledger.on('block', (block) => {
-      // emitted when a new block is received 
-      this.emit('block', block)
-    })
+    // this.ledger.on('block', (block) => {
+    //   // emitted when a new block is received 
+    //   this.emit('block', block)
+    // })
     
-    this.ledger.on('tx', (tx) => {
-      // emitted when tx is received into the memory pool
-      this.emit('tx', tx)
-    })
+    // this.ledger.on('tx', (tx) => {
+    //   // emitted when tx is received into the memory pool
+    //   this.emit('tx', tx)
+    // })
   }
 
   // class methods

@@ -630,7 +630,7 @@ strip-json-comments@~2.0.1:
 
 "subspace-storage@https://www.github.com/subspace/storage.git":
   version "1.0.0"
-  resolved "https://www.github.com/subspace/storage.git#5cca5204c8b7ab150a769746445c0b4080d31f6a"
+  resolved "https://www.github.com/subspace/storage.git#67f9e7b1724dc6f7bf5e48ec0cab2a8914b715fb"
   dependencies:
     level-rocksdb "^3.0.1"
     localforage "^1.7.2"
