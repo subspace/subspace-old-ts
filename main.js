@@ -1,6 +1,6 @@
 const EventEmitter = require('events')
 const crypto = require('subspace-crypto').default
-// const profile = require('subspace-profile').default
+const profile = require('subspace-profile').default
 const Storage = require('subspace-storage').default
 // const transport = require('subspace-transport').default
 // const rpc = require('subspace-rpc').default
