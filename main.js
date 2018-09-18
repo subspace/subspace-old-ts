@@ -72,6 +72,7 @@ class Subspace extends EventEmitter {
     try {
       await this.profile.create(options)
       await this.profile.save(this.storage)
+      console.log('created profile')
       return
     }
     catch (error) {
@@ -130,7 +131,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
@@ -140,7 +141,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
@@ -150,7 +151,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
@@ -170,7 +171,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
@@ -180,7 +181,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
