@@ -1,0 +1,17 @@
+{
+  "name": "@subspace/subspace",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "dependencies": {
+    "subspace-crypto": "https://www.github.com/subspace/crypto.git",
+    "subspace-storage": "https://www.github.com/subspace/storage.git",
+    "subspace-profile": "https://www.github.com/subspace/profile.git"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
