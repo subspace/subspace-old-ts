@@ -121,7 +121,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
@@ -191,7 +191,7 @@ class Subspace extends EventEmitter {
     try {
 
     }
-    catch {
+    catch (error) {
 
     }
   }
