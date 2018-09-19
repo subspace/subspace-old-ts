@@ -95,7 +95,7 @@ class Subspace extends EventEmitter {
   async clearProfile() {
     // deletes the existing profile on disk
     try {
-      await this.profile.clear()
+      await this.profile.clear(this.storage)
     }
     catch (error) {
       console.log('Error clearing profile')
