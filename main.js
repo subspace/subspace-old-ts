@@ -67,7 +67,7 @@ class Subspace extends EventEmitter {
   }
 
   // class methods
-  async create_profile(options) {
+  async createProfile(options) {
     // create a new subspace identity 
     try {
       await this.profile.create(options)
@@ -76,6 +76,29 @@ class Subspace extends EventEmitter {
     }
     catch (error) {
       console.log('Error creating new subspace identity')
+      console.log(error)
+    }
+  }
+
+  async loadProfile() {
+    // opens an existing profile from disk
+    try {
+      await this.profile.load(this.storage)
+      return
+    } 
+    catch (error) {
+      console.log('Error loading profile from disk')
+      console.log(error)
+    }
+  }
+
+  async clearProfile() {
+    // deletes the existing profile on disk
+    try {
+      await this.profile.clear()
+    }
+    catch (error) {
+      console.log('Error clearing profile')
       console.log(error)
     }
   }
