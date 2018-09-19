@@ -397,8 +397,8 @@ nan@~2.10.0:
   resolved "https://registry.yarnpkg.com/nan/-/nan-2.10.0.tgz#96d0cd610ebd58d4b4de9cc0c6828cda99c7548f"
 
 node-abi@^2.2.0:
-  version "2.4.3"
-  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.4.3.tgz#43666b7b17e57863e572409edbb82115ac7af28b"
+  version "2.4.4"
+  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.4.4.tgz#410d8968809fe616dc078a181c44a370912f12fd"
   dependencies:
     semver "^5.4.1"
 
@@ -616,7 +616,7 @@ strip-json-comments@~2.0.1:
 
 "subspace-crypto@https://www.github.com/subspace/crypto.git":
   version "0.0.1"
-  resolved "https://www.github.com/subspace/crypto.git#368e8bc6a21e08f8005a549bd5432960d8684c35"
+  resolved "https://www.github.com/subspace/crypto.git#26afa5b9254208251ecd3816699f08fa2bdd263e"
   dependencies:
     aes-js "^3.1.1"
     openpgp "^4.0.0"
@@ -624,13 +624,13 @@ strip-json-comments@~2.0.1:
 
 "subspace-profile@https://www.github.com/subspace/profile.git":
   version "1.0.0"
-  resolved "https://www.github.com/subspace/profile.git#9ecd6ef5745c965a229d0ce4226f2f19a9356efa"
+  resolved "https://www.github.com/subspace/profile.git#0690910c964aa5b2e5fb9700c971d2e64504eba7"
   dependencies:
     subspace-crypto "https://www.github.com/subspace/crypto.git"
 
 "subspace-storage@https://www.github.com/subspace/storage.git":
   version "1.0.0"
-  resolved "https://www.github.com/subspace/storage.git#67f9e7b1724dc6f7bf5e48ec0cab2a8914b715fb"
+  resolved "https://www.github.com/subspace/storage.git#00ef8dbdeed98dd7f9cce5c930d09f59e78dd92d"
   dependencies:
     level-rocksdb "^3.0.1"
     localforage "^1.7.2"

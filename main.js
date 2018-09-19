@@ -14,9 +14,9 @@ const Storage = require('subspace-storage').default
 class Subspace extends EventEmitter {
 
   // class constructor
-  constructor() {
+  constructor(adapter = 'rocks') {
     super()
-    this.storage = new Storage(adapter = 'rocks')
+    this.storage = new Storage(adapter)
     this.profile = profile 
     this.transport = null
     this.tracker = null 
@@ -67,12 +67,11 @@ class Subspace extends EventEmitter {
   }
 
   // class methods
-  async create(options) {
+  async create_profile(options) {
     // create a new subspace identity 
     try {
       await this.profile.create(options)
       await this.profile.save(this.storage)
-      console.log('created profile')
       return
     }
     catch (error) {
