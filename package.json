@@ -1,12 +1,12 @@
 {
-  "name": "subspace",
+  "name": "@subspace/subspace",
   "version": "1.0.0",
   "description": "",
   "main": "main.js",
   "dependencies": {
-    "subspace-crypto": "https://www.github.com/subspace/crypto.git",
-    "subspace-profile": "https://www.github.com/subspace/profile.git",
-    "subspace-storage": "https://www.github.com/subspace/storage.git"
+    "@subspace/crypto": "github:subspace/crypto",
+    "@subspace/profile": "github:subspace/profile",
+    "@subspace/storage": "github:subspace/storage"
   },
   "devDependencies": {},
   "scripts": {
