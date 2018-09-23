@@ -9,25 +9,28 @@ Intended to be used within host and client implementations with a variety of sto
   const node = new subspace()
 
   // create the node identity (one time only)
-  await node.create(options)
+  await node.createProfile(options)
 
   // or load an existing identity
-  await node.load()
+  await node.loadProfile(path)
 
   // join or bootstrap the network as relay 
   await node.connect()
 
   // seed a plot with a proof of space (one time only)
-  let proof = await node.seed()
+  let proof = await node.seedPlot(size)
 
   // pledge the plot to the network as a host (one time only)
-  await node.pledge(proof)
+  let pledge = await node.pledgeSpace(proof)
 
   // upgrade network connection as a host
-  await node.join() 
+  node.joinHosts(pledge) 
+
+
+  // earn some subspace credits .......
 
   // create a database contract
-  let contract = await node.reserve()
+  let contract = await node.reserve(size, ttl, replication)
 
   // send credits 
   await node.send(to_address, amount)
@@ -66,10 +69,31 @@ Intended to be used within host and client implementations with a variety of sto
   })
 ```
 
+### Peer-Leave
+```javascript
+node.on('peer-leave', (peer) => {
+  console.log('An existing peer has closed a direct connection')
+})
+```
+
 ### Neighbor
 ```javascript
   node.on('neighbor', (host) => {
     console.log('You have connected to a new host as a direct neighbor')
+  })
+```
+
+### Neighbor-Leave
+```javascript
+  node.on('neighbor-leave', (neighbor) => {
+    console.log('An existing neighbor has left the network')
+  })
+```
+
+### Neighbor-Failed
+```javascript
+  node.on('neighbor-failed', (neighbor) => {
+    console.log('An existing neighbor has failed, starting PARSEC consensus')
   })
 ```
 
