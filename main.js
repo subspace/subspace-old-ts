@@ -43,84 +43,34 @@ class Subspace extends EventEmitter {
         env = this.env
       )
     })
-
-
-
-    // listen for sub-module events and emit corresponding module level events
     
-    this.network.on('connection', info => {
-      // fired when a new connection is opened over any TCP, WS, or WRTC socket
-      // may be a neighbor, client wishing to get/put data, or gateway sync 
-      if (info.type === 'peer') {
-        this.emit('peer', info)
-      } else if (info.type === 'neighbor') {
-        this.emit('neighbor', info)
-      }
+    this.network.on('connection', connection => {
+      // fired when a new active connection is opened over any TCP, WS, or WRTC socket
+      this.emit('connection', connection.node_id)
     })
 
-    this.network.on('disconnect', info => {
-      // fired when an existing connection is lost 
-      if (info.type === 'peer') {
-        this.emit('peer-leave', info)
-        // may need to connect to another peer (if was gateway?)
+    this.network.on('disconnect', connection => {
+      // fired when an existing active conneciton is close
+      this.emit('disconnect', connection.node_id)
+    })  
 
-      } else if (info.type === 'neighbor') {
-        if (info.reason === 'leave') {
-          this.emit('neighbor-leave', info)
-          // gossip leave
-          this.network.gossip()
-          // recalculate neighbors
-
-        } else if (info.reason === 'failure') {
-          this.emit('neighbor-failed', info)
-          // start parsec
-
-        }
-      }
+    this.network.on('message', message => {
+      // fired when any new message is received 
+      this.emit('message', message)
     })
 
-
-
-    this.network.on('message', msg => {
-      // switch cases
-      switch(msg.code) {
-        case 0:
-          name = 'put'
-          break
-        case 1: 
-          name ='get'
-          break
-        case 2:
-          name = ''
-      }
+    this.network.on('error', error => {
+      // fired when any error is received
+      this.emit('error', error)
     })
 
-    this.network.on('gossip', msg => {
-      // switch cases
-      switch(msg.code) {
-        case 0:
-          name = 'tracker'
-          break
-        case 1:
-          name = 'block'
-          break
-        case 2: 
-          name = 'tx'
-      }
-    })
-
-    this.network.on('tracker-update', updates => {
-      // emmited when a tracker-update is received via gossip
-      // may contain one or more pending join, full join, leave, or failure
-      // validate each and update the tracker
-      this.tracker.validate(updates)
-      for (let message in updates) {
-
-      }
-      // emit the appropriate event 
-      // regossip to neighbors as needed
-      this.network.gossip(updates)
-    })
+    // should RPC be moved to here?
+      // put
+      // get
+      // gossip (validate and regossip)
+        // tracker update
+        // tx
+        // block
 
     this.network.on('put-request', (record, node_id) => {
       // emitted when this node receives a put request from another node
@@ -153,10 +103,8 @@ class Subspace extends EventEmitter {
       // announce the event-type
       // re-gossip if needed to appropriate neighbors 
     })
-    // these are for proosed txs, what about valid txs for blocks?
   }
 
-  // class methods
   async createProfile(options) {
     // create a new subspace identity 
     try {
@@ -239,6 +187,18 @@ class Subspace extends EventEmitter {
       console.log('Error disconnecting from the subspance network')
       console.log(error)
     }
+  }
+
+  async send() {
+
+  }
+
+  async connect() {
+
+  }
+
+  async discconnect() {
+
   }
 
   async put(value) {
