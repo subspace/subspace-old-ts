@@ -1,24 +1,50 @@
 const EventEmitter = require('events')
-const crypto = require('subspace-crypto').default
-const profile = require('subspace-profile').default
-const Storage = require('subspace-storage').default
-const Network = require('subspace-network').default
-const Tracker = require('subspace-tracker').default
-const Ledger = require('subspace-ledger').default
-const Database = require('subspace-db').default
+const crypto = require('@subspace/crypto')
+const profile = require('@subspace/profile')
+const Storage = require('@subspace/storage')
+const Network = require('@subspace/network')
+const Tracker = require('@subspace/tracker')
+const Ledger = require('@subspace/ledger')
+const Database = require('@subspace/db')
 
 
 class Subspace extends EventEmitter {
 
-  // class constructor
-  constructor(adapter = 'rocks') {
+  constructor({
+    bootstrap = false, 
+    gateway_nodes = [],
+    gateway_count = 1, 
+    delegated = false, 
+    storage_adapter = 'rocks', 
+    profile = null
+  }) {
     super()
-    this.profile = profile 
-    this.storage = new Storage(adapter)
-    this.network = new Network(profile)
-    this.db = new Database(profile)
-    this.tracker = new Tracker() 
-    this.ledger =  new Ledger() 
+
+    this.bootstrap = bootstrap,
+    this.gateway_nodes = gateway_nodes
+    this.gateway_count = gateway_count
+    this.delegated = delegated
+    this.storage = Storage.open(storage_adapter)
+    this.profile = profile
+    this.tracker = new Tracker(this.storage)
+    
+    this.db = null
+    this.ledger =  null 
+    this.env = null
+
+    this.getEnv().then(() => {
+      this.network = new Network(
+        bootstrap = this.bootstrap, 
+        gateway_nodes = this.gateway_nodes, 
+        gateway_count = this.gateway_count, 
+        delegated = this.delegated, 
+        profile = this.profile,
+        tracker = this.tracker,
+        env = this.env
+      )
+    })
+
+
 
     // listen for sub-module events and emit corresponding module level events
     
@@ -50,6 +76,36 @@ class Subspace extends EventEmitter {
           // start parsec
 
         }
+      }
+    })
+
+
+
+    this.network.on('message', msg => {
+      // switch cases
+      switch(msg.code) {
+        case 0:
+          name = 'put'
+          break
+        case 1: 
+          name ='get'
+          break
+        case 2:
+          name = ''
+      }
+    })
+
+    this.network.on('gossip', msg => {
+      // switch cases
+      switch(msg.code) {
+        case 0:
+          name = 'tracker'
+          break
+        case 1:
+          name = 'block'
+          break
+        case 2: 
+          name = 'tx'
       }
     })
 
@@ -97,8 +153,6 @@ class Subspace extends EventEmitter {
       // announce the event-type
       // re-gossip if needed to appropriate neighbors 
     })
-
-  
     // these are for proosed txs, what about valid txs for blocks?
   }
 
@@ -106,7 +160,7 @@ class Subspace extends EventEmitter {
   async createProfile(options) {
     // create a new subspace identity 
     try {
-      await this.profile.create(options)
+      this.profie = await profile.create(options)
       await this.profile.save(this.storage)
       return
     }
@@ -139,16 +193,32 @@ class Subspace extends EventEmitter {
     }
   }
 
-  async connect() {
-    // connect to the subspace network as a node
+  async getEnv() {
+    if (typeof window !== 'undefined') {
+      console.log('Browser env detected')
+      return this.env = 'browser' 
+    } 
+  
+    if (await this.network.checkPublicIP()) {
+      console.log('Gateway env detected')
+      return this.env = 'gateway'
+    }
+
+    // else 'node' | 'bitbot' | 'desktop' | 'mobile'
+    console.log('Private host env detected')
+    return this.env = 'private-host'
+  }
+
+  async join() {  
     try {
-      // connects to the subspace network from known_hosts as a generic node
-      // fetches the tracker from one or more gateway hosts
-      // optionally can start a new subspace network and be the known_host
-      await this.network.getMyIp()
-      await this.network.checkPublicIP()
-      let host = await this.network.getClosestHost()
-      await this.network.connect(host)
+
+      await this.network.join()
+
+      if (this.bootstrap) {
+        // Create the tracker
+        // Create the ledger 
+      }
+    
       this.emit('connected')
       return
     }
@@ -158,10 +228,10 @@ class Subspace extends EventEmitter {
     }
   }
 
-  async disconnect() {
+  async leave() {
     // disconnect from the subspace network gracefully as a node
     try {
-      await this.network.disconnect()
+      await this.network.leave()
       this.emit('disconnected')
       return
     }
