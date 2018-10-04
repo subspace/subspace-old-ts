@@ -10,7 +10,7 @@ TOC Links
 
 ```javascript
 
-const Subspace = require('subspace')
+const Subspace = require('@subspace/subspace')
 
 let options = {
   bootstrap: false, // optional 
@@ -254,7 +254,7 @@ Sends a message to another peer on the network by id, an existing connection to 
 
 Returns an error if failed
 
-### subspace.createPledge(amount: number) : error
+### subspace.createPledge(amount: integer) : error
 Seeds a plot by creating a new proof of space for hosting and farming. 
 
 * `amount` - space to be pledged in GB, minimum is 10
@@ -266,7 +266,12 @@ Starts farming the ledger. Will also start to download the ledger locally. Will 
 
 Returns an error if failed
 
-### subspace.pledgeSpace(interval: number) : error
+### subspace.stopFarming() : error
+Stops farming the ledger. 
+
+Returns an error if failed.
+
+### subspace.pledgeSpace(interval: integer) : error
 Submits a pledge as a ledger tx to farmers. Resolves once the tx has been published in a valid block.
 
 * `interval` - payment interval in days, default is 30
