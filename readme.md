@@ -21,7 +21,7 @@ let options = {
   delegated: true // will delegate put/get of replicas to a first host
 }
 
-const subspace = new Subspace(options)
+const node = new Subspace(options)
 
 const startOptions = {
   name: 'Jeremiah Wagstaff',
@@ -41,22 +41,22 @@ const start = async () => {
     }
 
     // creates a new profile in the wallet and saves to disk
-    await subspace.createProfile(profileOptions)
+    await node.createProfile(profileOptions)
 
     // creates a new proof of space based on pledge size
-    await subspace.createPledge(startOptions.pledge)
+    await node.createPledge(startOptions.pledge)
 
     // joins the network as a peer
-    await subspace.join()
+    await node.join()
 
     // starts farming the ledger (using proof of space)
-    await subspace.farm()
+    await node.farm()
 
     // pledges proof of space for hosting records
-    await subspace.pledgeSpace(startOptions.interval)
+    await node.pledgeSpace(startOptions.interval)
 
     // joins host network by connecting to neighbors
-    await subspace.joinHosts()
+    await node.joinHosts()
 
     // do useful work and earn subspace credits!
 
@@ -69,11 +69,14 @@ const start = async () => {
     await node.send(to_address, amount)
 
     // put and get a new record to the network
-    const record = await subspace.put('hello subspace')
+    const record = await node.put('hello subspace')
     console.log('put a new record to remote host')
-    const value = await subspace.get(record.key)
+    const value = await node.get(record.key)
     assert(record.value === value)
     console.log('got same record back from remote host ')
+
+    // stop farming
+    await node.stopFarming()
 
     // leave the host network
     await node.leaveHosts()
@@ -108,7 +111,7 @@ let options = {
   delegated: true // will delegate put/get of replicas to a first host
 }
 
-const subspace = new Subspace(options)
+const client = new Subspace(options)
 
 ```
 
@@ -116,21 +119,21 @@ const subspace = new Subspace(options)
 
 ```javascript
 
-subspace.connect(error => {
+client.connect(error => {
   if (error) {
     console.log(error)
     return
   }
 
   console.log('connected to subspace network')
-  subspace.put('hello subspace', (error, record) => {
+  client.put('hello subspace', (error, record) => {
     if (error) {
       console.log(error)
       return
     }
 
     console.log('put a new record to remote host')
-    subspace.get(key, (error, value) => {
+    client.get(key, (error, value) => {
       if (error) {
         console.log(error)
         return
@@ -149,14 +152,14 @@ subspace.connect(error => {
 
 ```javascript
 
-subspace.connect()
+client.connect()
   .then(() => {
     console.log('connected to subspace network')
-    subspace.put('hello subspace')
+    client.put('hello subspace')
   })
   .then(record => {
     console.log('put a new record to remote host')
-    subspace.get(record.key)
+    client.get(record.key)
   })
   .then(value => {
     assert(record.value === value)
@@ -177,13 +180,13 @@ subspace.connect()
 
 const testSubspace = async () => {
   try {
-    await subspace.connect()
+    await client.connect()
     console.log('connected to subspace network')
 
-    const record = await subspace.put('hello subspace')
+    const record = await client.put('hello subspace')
     console.log('put a new record to remote host')
 
-    const value = await subspace.get(record.key)
+    const value = await client.get(record.key)
     assert(record.value === value)
     console.log('got same record back from remote host ')
 
@@ -199,7 +202,7 @@ const testSubspace = async () => {
 ```
 ## API
 
-### subspace.createProfile( name: string, email: string, passphrase: string) : error
+### subspace.createProfile( name: string, email: string, passphrase: string) : error: Error
 Creates a new profile and ECDSA key pair that is persisted to disk locally
 
 * `name` - Name associated with this profile
@@ -208,21 +211,21 @@ Creates a new profile and ECDSA key pair that is persisted to disk locally
 
 Returns an error if failed.
 
-### subspace.loadProfile(name: string) : error
+### subspace.loadProfile(name: string) : error: Error
 Loads an existing profile from disk
 
 * `name` - Name associated with this profile
 
 Returns an error if failed.
 
-### subspace.deleteProfile(name: string) : error
+### subspace.deleteProfile(name: string) : error: Error
 Deletes an existing profile from disk
 
 * `name` - Name associated with this profile
 
 Returns an error if failed.
 
-### subspace.join() : error
+### subspace.join() : error: Error
 Joins the subspace network
 
 Returns an error if failed
@@ -232,63 +235,63 @@ Leaves the subspace network, disconnecting from all peers gracefully
 
 Returns an error if failed
 
-### subspace.connect(node_id: string) : error
+### subspace.connect(node_id: string) : error: Error
 Connects to another node on the network by id.
 
-* `node_id` - 32 byte node as a hex string (currently)
+* `node_id` - 32 byte node id as a hex string (currently)
 
 Returns an error if failed
 
-### subspace.disconnect(node_id: string) : error
+### subspace.disconnect(node_id: string) : error: Error
 Disconnects from an existing peer node on the network by id.
 
-* `node_id` - 32 byte node as a hex string (currently)
+* `node_id` - 32 byte node id as a hex string (currently)
 
-Returns an error if failed
+Returns an error if failed.
 
-### subspace.send(node_id: string, message: object) : error
-Sends a message to another peer on the network by id, an existing connection to that peer is not required.
+### subspace.send(node_id: string, message: object) : error: Error | boolean
+Sends a message to another peer on the network by id, an existing connection to that peer is not required. If a connection does not exist it will attempt to locate the peer.
 
-* `node_id` - 32 byte node as a hex string (currently)
+* `node_id` - 32 byte node id as a hex string (currently)
 * `message` - a standard rpc message object as json
 
-Returns an error if failed
+Returns a boolean if peer was found and message was sent. Returns an error if failed
 
-### subspace.createPledge(amount: integer) : error
+### subspace.createPledge(amount: integer) : error: Error
 Seeds a plot by creating a new proof of space for hosting and farming. 
 
 * `amount` - space to be pledged in GB, minimum is 10
 
 Returns an error if failed
 
-### subspace.farm() : error
+### subspace.farm() : error: Error
 Starts farming the ledger. Will also start to download the ledger locally. Will start after last block is pulled.
 
 Returns an error if failed
 
-### subspace.stopFarming() : error
+### subspace.stopFarming() : error: Error
 Stops farming the ledger. 
 
 Returns an error if failed.
 
-### subspace.pledgeSpace(interval: integer) : error
+### subspace.pledgeSpace(interval: integer) : error: Error
 Submits a pledge as a ledger tx to farmers. Resolves once the tx has been published in a valid block.
 
 * `interval` - payment interval in days, default is 30
 
 Returns an error if failed
 
-### subspace.joinHosts() : error
+### subspace.joinHosts() : error: Error
 Joins the host network by connecting to all valid neighbors. Requires a valid pledge to the ledger.
 
 Returns an error if failed.
 
-### subspace.leaveHosts(): error
+### subspace.leaveHosts(): error: Error
 Leaves the host network by gracefully disconnecting from all valid neighbors.
 
 Returns an error if failed.
 
-### subspace.createContract(options: object) : error
+### subspace.createContract(options: object) : error: Error
 Creates a new data contract tx and submits to farmers for inclusion in the ledger. Requires sufficient subspace credits. Resolves once the tx has been published in a valid block.
 
 * `options` - tbd
@@ -329,10 +332,13 @@ Returns balance of subspace credits. Returns an error if failed.
 ### subspace.on('connected')
 Emitted when this node is fully connected to the network.
 
-### subspace.on('connection', connection: connectionObject)
+### subspace.on('disconnected')
+Emitted when this node is fully disconnected from the network.
+
+### subspace.on('connection', node_id: string)
 Emitted when this node connects to a new peer.
 
-### subspace.on('disconnection', connection: connectionObject)
+### subspace.on('disconnection', node_id: string)
 Emitted when this node disconnects from an existing peer.
 
 ### subspace.on('message', message: messageObject)
