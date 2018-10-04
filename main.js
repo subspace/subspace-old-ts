@@ -43,16 +43,26 @@ class Subspace extends EventEmitter {
         env = this.env
       )
     })
+
+    this.network.on('connected', () => {
+      this.emit('connected')
+    })
+
+    this.network.on('disconnected', () => {
+      this.emit('disconnected')
+    })
     
     this.network.on('connection', connection => {
       // fired when a new active connection is opened over any TCP, WS, or WRTC socket
       this.emit('connection', connection.node_id)
     })
 
-    this.network.on('disconnect', connection => {
+    this.network.on('disconnection', connection => {
       // fired when an existing active conneciton is close
-      this.emit('disconnect', connection.node_id)
+      this.emit('disconnection', connection.node_id)
     })  
+
+    
 
     this.network.on('message', message => {
       // fired when any new message is received 
@@ -142,63 +152,98 @@ class Subspace extends EventEmitter {
   }
 
   async getEnv() {
-    if (typeof window !== 'undefined') {
-      console.log('Browser env detected')
-      return this.env = 'browser' 
-    } 
-  
-    if (await this.network.checkPublicIP()) {
-      console.log('Gateway env detected')
-      return this.env = 'gateway'
+    try {
+      if (typeof window !== 'undefined') {
+        console.log('Browser env detected')
+        this.env = 'browser' 
+      } else if (await this.network.checkPublicIP()) {
+        console.log('Gateway env detected')
+        this.env = 'gateway'
+      } else {
+        // else 'node' | 'bitbot' | 'desktop' | 'mobile'
+        console.log('Private host env detected')
+        this.env = 'private-host'
+      }
+      return
     }
-
-    // else 'node' | 'bitbot' | 'desktop' | 'mobile'
-    console.log('Private host env detected')
-    return this.env = 'private-host'
+    catch (error) {
+      console.log('Error getting env')
+      console.log(error)
+      this.emit('error', error)
+      return error
+    }
+    
   }
 
   async join() {  
     try {
 
-      await this.network.join()
-
+     const joined = await this.network.join()
+     if (joined) {
       if (this.bootstrap) {
         // Create the tracker
         // Create the ledger 
       }
     
-      this.emit('connected')
-      return
+     } else {
+       console.log('Could not join the network, trackers are out of sync')
+     }
+
+    return
+
     }
     catch (error) {
       console.log('Error connecting to the subspace network')
       console.log(error)
+      return error
     }
   }
 
   async leave() {
     // disconnect from the subspace network gracefully as a node
     try {
-      await this.network.leave()
-      this.emit('disconnected')
+      this.network.leave()
       return
     }
     catch (error) {
       console.log('Error disconnecting from the subspance network')
       console.log(error)
+      return error
     }
   }
 
-  async send() {
-
+  async connect(node_id) {
+    try { 
+      await this.network.connect(node_id)
+    }
+    catch (error) {
+      console.log('Error connecting to node')
+      console.log(error)
+      return
+    }
   }
 
-  async connect() {
-
+  async discconnect(node_id) {
+    try {
+      this.network.discconnect(node_id)
+      return
+    }
+    catch (error) {
+      console.log('Error disconnecting from node')
+      console.log(error)
+      return
+    }
   }
 
-  async discconnect() {
-
+  async send(node_id, message) {
+    try {
+      return await this.network.send(node_id, message)
+    }
+    catch (error) {
+      console.log('Error sending message')
+      console.log(error)
+      return error
+    }
   }
 
   async put(value) {
@@ -209,7 +254,7 @@ class Subspace extends EventEmitter {
       // boolean
       // array
       // object
-      // binary 
+      // buffer 
 
     // key will be created from the value and returned 
     try {
