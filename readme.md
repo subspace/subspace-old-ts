@@ -13,38 +13,27 @@ TOC Links
 const Subspace = require('@subspace/subspace')
 
 let options = {
-  bootstrap: false, // optional 
-  gateway_nodes: [], // optional, overirde the default gateways
+  name: 'Jeremiah Wagstaff', // optional name to associate with profile
+  email: 'jeremiah@subspace.network', // optional email to associate with profile
+  passphrase: 'subspace_rocks', // optional passhprase to associate with profile
+  pledge: 10, // optional pledge if hosting or farming (gb)
+  interval: 30, // optional payment interval in days, if hosting
+  bootstrap: false, // optional, default is false
+  gateway_nodes: [], // optional, overirdes the default gateways
   gateway_count: 1, // optional, default is 1
-  storage_adapter: 'node', // default is node (rocks db)
-  profile: null, // if not provided, a new profile will be created
-  delegated: true // will delegate put/get of replicas to a first host
+  delegated: true, // will delegate put/get of replicas to a first host
 }
 
 const node = new Subspace(options)
 
-const startOptions = {
-  name: 'Jeremiah Wagstaff',
-  email: 'jeremiah@subspace.network',
-  passphrase: 'somePassphrase',
-  pledge: 10, // space pledge in GB
-  interval: 30, // payment interval in days
-}
-
 const start = async () => {
   try {
 
-    const profileOptions = { 
-      name: startOptions.name, 
-      email: startOptions.email, 
-      passphrase: startOptions.passphrase
-    }
-
-    // creates a new profile in the wallet and saves to disk
-    await node.createProfile(profileOptions)
+    // a new profile will be created from defaults, options
+    // or an exsting profile will be loaded from disk
 
     // creates a new proof of space based on pledge size
-    await node.createPledge(startOptions.pledge)
+    await node.createPledge()
 
     // joins the network as a peer
     await node.join()
@@ -53,7 +42,7 @@ const start = async () => {
     await node.farm()
 
     // pledges proof of space for hosting records
-    await node.pledgeSpace(startOptions.interval)
+    await node.submitPledge()
 
     // joins host network by connecting to neighbors
     await node.joinHosts()
@@ -99,17 +88,24 @@ const start = async () => {
 
 ```javascript
 
-const Subspace = require('subspace')
-
+const Subspace = require('@subspace/subspace')
 
 let options = {
-  bootstrap: false, // optional 
-  gateway_nodes: [], // optional, overirde the default gateways
+  name: 'Jeremiah Wagstaff', // optional name to associate with profile
+  email: 'jeremiah@subspace.network', // optional email to associate with profile
+  passphrase: 'subspace_rocks', // optional passhprase to associate with profile
+  pledge: 10, // optional pledge if hosting or farming (gb)
+  interval: 30, // optional payment interval in days, if hosting
+  bootstrap: false, // optional, default is false
+  gateway_nodes: [], // optional, overirdes the default gateways
   gateway_count: 1, // optional, default is 1
-  storage_adapter: 'browser', // default is node (rocks db)
-  profile: null, // if not provided, a new profile will be created
-  delegated: true // will delegate put/get of replicas to a first host
+  delegated: true, // will delegate put/get of replicas to a first host
 }
+
+// when would you want to pass in a profile?
+  // as a host, no it will load automatically
+  // as a dev, no but you will want to pass in contract keys 
+  // as a dApp user, only if it is backed up on subspace
 
 const client = new Subspace(options)
 
@@ -119,7 +115,7 @@ const client = new Subspace(options)
 
 ```javascript
 
-client.connect(error => {
+client.join(error => {
   if (error) {
     console.log(error)
     return
@@ -152,7 +148,7 @@ client.connect(error => {
 
 ```javascript
 
-client.connect()
+client.join()
   .then(() => {
     console.log('connected to subspace network')
     client.put('hello subspace')
@@ -174,13 +170,13 @@ client.connect()
 
 ```
 
-### Using Async/Await
+### Using async/await syntax
 
 ```javascript
 
 const testSubspace = async () => {
   try {
-    await client.connect()
+    await client.join()
     console.log('connected to subspace network')
 
     const record = await client.put('hello subspace')
@@ -202,7 +198,7 @@ const testSubspace = async () => {
 ```
 ## API
 
-### subspace.createProfile( name: string, email: string, passphrase: string) : error: Error
+### subspace.createProfile( name: string, email: string, passphrase: string) : Error
 Creates a new profile and ECDSA key pair that is persisted to disk locally
 
 * `name` - Name associated with this profile
@@ -211,45 +207,45 @@ Creates a new profile and ECDSA key pair that is persisted to disk locally
 
 Returns an error if failed.
 
-### subspace.loadProfile(name: string) : error: Error
+### subspace.loadProfile(name: string) : Error
 Loads an existing profile from disk
 
 * `name` - Name associated with this profile
 
 Returns an error if failed.
 
-### subspace.deleteProfile(name: string) : error: Error
+### subspace.deleteProfile(name: string) : Error
 Deletes an existing profile from disk
 
 * `name` - Name associated with this profile
 
 Returns an error if failed.
 
-### subspace.join() : error: Error
+### subspace.join() : Error
 Joins the subspace network
 
 Returns an error if failed
 
-### subspace.leave()
+### subspace.leave() : Error
 Leaves the subspace network, disconnecting from all peers gracefully
 
 Returns an error if failed
 
-### subspace.connect(node_id: string) : error: Error
+### subspace.connect(node_id: string) : Error
 Connects to another node on the network by id.
 
 * `node_id` - 32 byte node id as a hex string (currently)
 
 Returns an error if failed
 
-### subspace.disconnect(node_id: string) : error: Error
+### subspace.disconnect(node_id: string) : Error
 Disconnects from an existing peer node on the network by id.
 
 * `node_id` - 32 byte node id as a hex string (currently)
 
 Returns an error if failed.
 
-### subspace.send(node_id: string, message: object) : error: Error | boolean
+### subspace.send(node_id: string, message: object) : Error | boolean
 Sends a message to another peer on the network by id, an existing connection to that peer is not required. If a connection does not exist it will attempt to locate the peer.
 
 * `node_id` - 32 byte node id as a hex string (currently)
@@ -257,41 +253,41 @@ Sends a message to another peer on the network by id, an existing connection to 
 
 Returns a boolean if peer was found and message was sent. Returns an error if failed
 
-### subspace.createPledge(amount: integer) : error: Error
+### subspace.createPledge(amount: integer) : Error
 Seeds a plot by creating a new proof of space for hosting and farming. 
 
 * `amount` - space to be pledged in GB, minimum is 10
 
 Returns an error if failed
 
-### subspace.farm() : error: Error
+### subspace.farm() : Error
 Starts farming the ledger. Will also start to download the ledger locally. Will start after last block is pulled.
 
 Returns an error if failed
 
-### subspace.stopFarming() : error: Error
+### subspace.stopFarming() : Error
 Stops farming the ledger. 
 
 Returns an error if failed.
 
-### subspace.pledgeSpace(interval: integer) : error: Error
+### subspace.pledgeSpace(interval: integer) : Error
 Submits a pledge as a ledger tx to farmers. Resolves once the tx has been published in a valid block.
 
 * `interval` - payment interval in days, default is 30
 
 Returns an error if failed
 
-### subspace.joinHosts() : error: Error
+### subspace.joinHosts() : Error
 Joins the host network by connecting to all valid neighbors. Requires a valid pledge to the ledger.
 
 Returns an error if failed.
 
-### subspace.leaveHosts(): error: Error
+### subspace.leaveHosts(): Error
 Leaves the host network by gracefully disconnecting from all valid neighbors.
 
 Returns an error if failed.
 
-### subspace.createContract(options: object) : error: Error
+### subspace.createContract(options: object) : Error
 Creates a new data contract tx and submits to farmers for inclusion in the ledger. Requires sufficient subspace credits. Resolves once the tx has been published in a valid block.
 
 * `options` - tbd
