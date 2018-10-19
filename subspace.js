@@ -23,6 +23,8 @@ const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
 
 export default class Subspace extends EventEmitter {
 
+  // small change
+
   constructor({
     name = DEFAULT_PROFILE_NAME,
     email = DEFAULT_PROFILE_EMAIL,
@@ -237,7 +239,7 @@ export default class Subspace extends EventEmitter {
       // submit contract tx to farmers
       // encode the contract as a plain text mutable record
       // store the record on the correct hosts for this contract
-      
+
       const profile = this.wallet.getProfile()
 
       // init the public contract data
