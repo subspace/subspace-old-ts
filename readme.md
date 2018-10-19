@@ -2,9 +2,18 @@
 
 ## Overview
 
-Subspace is ...
+Subspace is
 
 TOC Links
+
+* [Usage](#usage)
+* [API](#api)
+* [Promise Support](#promise-support)
+* [Events](#events)
+* [Contributing](#contributing)
+* [License](#license)
+
+
 
 ## Full Node Example
 
@@ -32,8 +41,8 @@ const start = async () => {
     // a new profile will be created from defaults, options
     // or an exsting profile will be loaded from disk
 
-    // creates a new proof of space based on pledge size
-    await node.createPledge()
+    // creates a new proof of space 
+    await node.createProof()
 
     // joins the network as a peer
     await node.join()
@@ -42,7 +51,7 @@ const start = async () => {
     await node.farm()
 
     // pledges proof of space for hosting records
-    await node.submitPledge()
+    await node.createPledge()
 
     // joins host network by connecting to neighbors
     await node.joinHosts()
@@ -55,7 +64,7 @@ const start = async () => {
     await node.reserveSpace(options)
 
     // send credits 
-    await node.send(to_address, amount)
+    await node.sendCredits(to_address, amount)
 
     // put and get a new record to the network
     const record = await node.put('hello subspace')
@@ -88,18 +97,32 @@ const start = async () => {
 
 ```javascript
 
-const Subspace = require('@subspace/subspace')
+// write example console generated snippet
+
+
 
 let options = {
-  name: 'Jeremiah Wagstaff', // optional name to associate with profile
-  email: 'jeremiah@subspace.network', // optional email to associate with profile
-  passphrase: 'subspace_rocks', // optional passhprase to associate with profile
+  // name: 'Jeremiah Wagstaff', // optional name to associate with profile
+  // email: 'jeremiah@subspace.network', // optional email to associate with profile
+  // passphrase: 'subspace_rocks', // optional passhprase to associate with profile
+
+  contract: {
+    id
+    pubkey:
+    size: 
+  }
+
+  // host only 
   pledge: 10, // optional pledge if hosting or farming (gb)
   interval: 30, // optional payment interval in days, if hosting
+
+  // security / trust
   bootstrap: false, // optional, default is false
-  gateway_nodes: [], // optional, overirdes the default gateways
+
+  gateway_nodes: [], // optional, overirdes the default gateways -> ip address / public key 
   gateway_count: 1, // optional, default is 1
   delegated: true, // will delegate put/get of replicas to a first host
+  
 }
 
 // when would you want to pass in a profile?
@@ -107,7 +130,8 @@ let options = {
   // as a dev, no but you will want to pass in contract keys 
   // as a dApp user, only if it is backed up on subspace
 
-const client = new Subspace(options)
+const Subspace = require('@subspace/subspace')
+const client = new Subspace()
 
 ```
 
@@ -129,7 +153,7 @@ client.join(error => {
     }
 
     console.log('put a new record to remote host')
-    client.get(key, (error, value) => {
+    client.get(record.key, (error, value) => {
       if (error) {
         console.log(error)
         return
@@ -253,7 +277,7 @@ Sends a message to another peer on the network by id, an existing connection to 
 
 Returns a boolean if peer was found and message was sent. Returns an error if failed
 
-### subspace.createPledge(amount: integer) : Error
+### subspace.createProof(amount: integer) : Error
 Seeds a plot by creating a new proof of space for hosting and farming. 
 
 * `amount` - space to be pledged in GB, minimum is 10
@@ -270,8 +294,8 @@ Stops farming the ledger.
 
 Returns an error if failed.
 
-### subspace.pledgeSpace(interval: integer) : Error
-Submits a pledge as a ledger tx to farmers. Resolves once the tx has been published in a valid block.
+### subspace.createPledge(interval: integer) : Error
+Creates and submits a pledge as a ledger tx to farmers. Resolves once the tx has been published in a valid block.
 
 * `interval` - payment interval in days, default is 30
 
@@ -294,21 +318,38 @@ Creates a new data contract tx and submits to farmers for inclusion in the ledge
 
 Returns an error if failed.
 
-### subspace.put(value: boolean | string | number | array | object | Buffer) : error | record: recordObject
-Writes some data to the subspace network. Resolves once all replicas have been created. Requires a valid data contract for this profile.
 
-* `value` - the data to be stored, in most evert format possible
 
-Returns the plain text record in encoded format with derived key. Returns an error if failed.
+### subspace.put(value: boolean | string | number | array | object | Buffer) : error | record: MutableRecord | ImmutableRecord
+Writes some data to the subspace network. Resolves once all replicas have been created. Requires a valid data contract for this profile. Immutable or mutable record type is based on underlying contract. Resolves once the record is validated and stored locally. Emits an event when the record is fully replicated on SSDB or if error during replication.
 
-### subspace.get(key: string) : error | value: valueObject
-Retrieves some data from the subspace network. Resolves once the first valid record is returned. Does not require a valid data contract for this profile
+* `value` - the data to be stored, in every format possible
+
+Returns the plain text record in encoded format with derived key. Returns an error if failed. Emits an event when fully resolved.
+
+### subspace.get(key: string) : Error | value: valueObject
+Retrieves some data from the subspace network. Resolves once the first valid record is retreived from the network. Emits an event once all valid records have been returned are in sync. 
 
 * `key` - 32 byte record key as a hex string (currently)
 
-Returns the plain text record value in encoded format. Returns an error if failed.
+Returns the plain text record value in encoded format. Returns an error if failed. Emits an event when fully resolved.
 
-### subspace.sendCredits(address: string, amount: number) error | tx: txObject
+### subspace.patch(record: mutableRecord): Error
+Updates a mutable record. Pass in the new record and it will diff and patch automatically. Resolves once the record is validated and stored locally. Emits an event when the update is fully replicated on SSDB or if error during replication.
+
+* `record` - updated mutable record
+
+Returns an error if failed. Emits an event when fully resolved.
+
+### subspace.del(key: string) : Error
+Deletes a mutable record from a mutable contract. Resolves once the record is deleted locally. Emits an event when the deleted is fully replicated on SSDB or if error replication.
+
+* `key` - 32 byte record key as a hex string (currently)
+
+Returns an error if failed. Emits an event when fully resolved.
+
+
+### subspace.sendCredits(address: string, amount: integer) Error | tx: txObject
 Sends subspace credits from your address to a recipient's address. Creates a tx and submits to farmers for includsion in the ledger.
 
 * `address` - 32 byte address of recipient as a hex string (currently)
@@ -346,6 +387,7 @@ Emitted when this node receives a new put request.
 ### subspace.on('get', request: requestObject)
 Emitted when this node receives a new get request.
 
+
 ### subspace.on('tx', tx: txObject)
 Emitted when this nodes receives a new ledger tx (via gossip)
 
@@ -354,6 +396,22 @@ Emitted when this node receives a new ledger block (via gossip)
 
 ### subspace.on('error', error)
 Emitted when any process on the node encounters an error.
+
+
+## Design
+
+### Mutable vs Immutable Storage Contracts
+
+Cost, API, and encoding
+
+### Databse & Record Schema
+
+Encryption, sharding, replication, and 
+
+### Authentication & Authorization
+
+
+
 
 ## Old Events (need to refactor)
 
