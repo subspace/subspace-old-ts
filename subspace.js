@@ -390,9 +390,6 @@ export default class Subspace extends EventEmitter {
 
       // when client receives the contract-reply from host
       this.network.on('contract-reply', async message => {
-
-        contract = this.getContract()
-
         // throw error if invalid response
         if (!message.data.valid) {
           reject(new Error(message.data.description))
