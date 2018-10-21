@@ -364,7 +364,7 @@ export default class Subspace extends EventEmitter {
           response.description = testRequest.reason
           await this.createGenericMessage('put-reply', response)
           this.network.send(message.data.nodeId, response)
-          break
+          return
         }
 
         // assume valid
@@ -373,7 +373,12 @@ export default class Subspace extends EventEmitter {
         await this.db.put(record.key, record.value)
 
         // create or update shard, then update the shard
-        const shardMap = this.db.computeShardAndHostsForKey(record.key, record.value.contract, contract.spaceReserved contract.replicationFactor)
+        const shardMap = this.db.computeShardAndHostsForKey(
+          record.key,
+          record.value.contract,
+          contract.spaceReserved,
+          contract.replicationFactor
+        )
         const shard = await this.db.getOrCreateShard(shardMap.id, contract.id)
         await this.db.addRecordToShard(shard.id, record)
 
