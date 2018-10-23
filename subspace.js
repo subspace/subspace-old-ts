@@ -563,7 +563,7 @@ export default class Subspace extends EventEmitter {
     })
   }
   
-  async rev (key, value) {
+  async rev(key, value) {
   
     const keyObject = this.db.parseKey(key)
     const contract = this.wallet.getContract()
