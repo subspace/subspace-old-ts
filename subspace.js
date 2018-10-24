@@ -166,7 +166,6 @@ export default class Subspace extends EventEmitter {
 
       // handle validation for gossiped messages here
       // specific rpc methods are emitted and handled in corresponding parent method
-      // need to validate singature and timestamps on all here first
 
       switch(message.type) {
         case('pending-join'):
@@ -178,24 +177,31 @@ export default class Subspace extends EventEmitter {
         case('failure'):
           break
         case('tx'):
-          // first validate the immutable record on SSDB 
-          // extract the tx data and validate the tx data and validate that in ledger 
-
-          valid = await this.ledger.onTx(message.data)
-          if (valid) {
-            const newMessage = this.network.createGenericMessage('tx', message.data)
-            this.network.gossip(newMessage)
-            this.emit('tx', message.data)
-          }
+          // first ensure we have a valid SSDB record wrapping the tx
+          const record = this.db.loadRecord(message.data) 
+          const isValidRecord = await record.isValid()
+          if (isValidRecord) {
+            // then validate the tx data
+            isValidTx = await this.ledger.onTx(record.value.content)
+            if (isValidTx) {
+              const newMessage = this.network.createGenericMessage('tx', message.data)
+              this.network.gossip(newMessage)
+              this.emit('tx', message.data)
+            }
+          }          
           break
         case('block'):
           // first validate the immutable record on SSDB
-          // extract the block data and validate that in ledger
-          valid = await this.ledger.onBlock(message.data)
-          if (valid) {
-            const newMessage = this.network.createGenericMessage('block', message.data)
-            this.network.gossip(newMessage)
-            this.emit('block', message.data)
+          const record = this.db.loadRecord(message.data)
+          const isValidRecord = await record.isValid()
+          if (isValidRecord) {
+            // extract the block data and validate that in ledger
+            isValidBlock = await this.ledger.onBlock(record.value.content)
+            if (isValidBlock) {
+              const newMessage = this.network.createGenericMessage('block', message.data)
+              this.network.gossip(newMessage)
+              this.emit('block', message.data)
+            }
           }
           break
         default:
