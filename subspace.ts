@@ -1,11 +1,11 @@
-const EventEmitter = require('events')
-const crypto = require('@subspace/crypto')
-const Wallet = require('@subspace/wallet')
-const Storage = require('@subspace/storage')
-const Network = require('@subspace/network')
-const Tracker = require('@subspace/tracker')
-const Ledger = require('@subspace/ledger')
-const Database = require('@subspace/database')
+import EventEmitter from 'events'
+import * as crypto from '@subspace/crypto'
+import * as Wallet from '@subspace/wallet'
+import * as Storage from '@subspace/storage'
+// import  Network from '@subspace/network'
+import Tracker from '@subspace/tracker'
+import Ledger from '@subspace/ledger'
+import {DataBase, Record} from '@subspace/database'
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -15,7 +15,7 @@ const DEFAULT_HOST_INTERVAL = 2628000000 // 1 month in ms
 const DEFAULT_GATEWAY_NODES = []
 const DEFAULT_GATEWAY_COUNT = 1
 const DEFAULT_CONTRACT_NAME = 'dev'
-const DEFAULT_CONTRACT_EMAIL = 'dev@subspace.networ'
+const DEFAULT_CONTRACT_EMAIL = 'dev@subspace.network'
 const DEFAULT_CONTRACT_PASSPHRASE = 'passphrase'
 const DEFAULT_CONTRACT_SIZE = 1000000000  // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000   // 1 month in ms
@@ -25,41 +25,32 @@ export default class Subspace extends EventEmitter {
 
   // small change
 
-  constructor({
-    name = DEFAULT_PROFILE_NAME,
-    email = DEFAULT_PROFILE_EMAIL,
-    passphrase = DEFAULT_CONTRACT_PASSPHRASE,
-    pledge = null,
-    interval = null,
-    bootstrap = false, 
-    gateway_nodes = DEFAULT_GATEWAY_NODES,
-    gateway_count = DEFAULT_GATEWAY_COUNT, 
-    delegated = false
-  }) {
-    super()
+  public isInit = false
+  public env: string = null
+  public storage_adapter: string = null
+  public pending: Map<string, string> = new Map()
+  public isFarming = false
 
-    this.isInit = false
-    this.name = name
-    this.email = email 
-    this.passphrase = passphrase
-    this.pledge = pledge
-    this.interval = interval
-    this.bootstrap = bootstrap
-    this.gateway_nodes = gateway_nodes
-    this.gateway_count = gateway_count
-    this.delegated = delegated
-    this.env = null
-    this.storage_adapter = null
-    this.requests = new Map()
-    this.isFarming = false
+  constructor(
+    public name  = DEFAULT_PROFILE_NAME,
+    public email = DEFAULT_PROFILE_EMAIL,
+    public passphrase = DEFAULT_CONTRACT_PASSPHRASE,
+    public pledge = null,
+    public interval = null,
+    public bootstrap = false, 
+    public gateway_nodes = DEFAULT_GATEWAY_NODES,
+    public gateway_count = DEFAULT_GATEWAY_COUNT, 
+    public delegated = false
+  ) {
+    super()
   }
-  
-  requests: {
-    pending: new Map(),
+
+  requests = {
+    pending: <Map<string, string>> new Map(),
     async add(type, recordId, data, hosts) {
       // generate and send the request
       const message = await this.network.createGenericMessage(`${type}-request`, data)
-      for (host of hosts) {
+      for (const host of hosts) {
         this.network.send(host, message)
       }
   
@@ -68,7 +59,7 @@ export default class Subspace extends EventEmitter {
       this.requests.pending.set(crypto.getHash(recordId + type), hosts)
     },
     async remove(type, recordId, host) {
-      const key = cyrpto.getHash(type + recordId)
+      const key = crypto.getHash(type + recordId)
       const request = this.requests.pending.get(key)
       request.delete(host)
       this.requests.pending.set(key, request)
@@ -89,7 +80,7 @@ export default class Subspace extends EventEmitter {
       return this.requests.pending.get(crypto.getHasin(type + recordId)).size
     }
   }
-
+  
   async initEnv() {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
@@ -143,7 +134,7 @@ export default class Subspace extends EventEmitter {
 
     // database
 
-    this.db = new Database(this.storage, this.wallet)
+    this.database = new Database(this.storage, this.wallet)
     
     // network
     this.network = new Network(
@@ -178,12 +169,12 @@ export default class Subspace extends EventEmitter {
           break
         case('tx'):
           // first ensure we have a valid SSDB record wrapping the tx
-          const record = this.db.loadRecord(message.data) 
-          const isValidRecord = await record.isValid()
-          if (isValidRecord) {
+          const record = Record.readUnpacked(message.data) 
+          const recordTest = await record.isValid()
+          if (recortTest.valid) {
             // then validate the tx data
-            isValidTx = await this.ledger.onTx(record.value.content)
-            if (isValidTx) {
+            txTest = await this.ledger.onTx(record)
+            if (txTest.valid) {
               const newMessage = this.network.createGenericMessage('tx', message.data)
               this.network.gossip(newMessage)
               this.emit('tx', message.data)
@@ -192,12 +183,12 @@ export default class Subspace extends EventEmitter {
           break
         case('block'):
           // first validate the immutable record on SSDB
-          const record = this.db.loadRecord(message.data)
-          const isValidRecord = await record.isValid()
-          if (isValidRecord) {
+          const record = Record.readUnpacked(message.data)
+          const recordTest = await record.isValid()
+          if (recordTest.valid) {
             // extract the block data and validate that in ledger
-            isValidBlock = await this.ledger.onBlock(record.value.content)
-            if (isValidBlock) {
+            blockTest = await this.ledger.onBlock(record)
+            if (blockTest.valid) {
               const newMessage = this.network.createGenericMessage('block', message.data)
               this.network.gossip(newMessage)
               this.emit('block', message.data)
@@ -207,7 +198,6 @@ export default class Subspace extends EventEmitter {
         default:
           this.emit(message.type, message.data)
       }
-
     })
 
     this.init = true
@@ -229,11 +219,7 @@ export default class Subspace extends EventEmitter {
   async join() {  
     // join the subspace network as a node
     await this.init()
-    await this.network.join()
-    if (this.bootstrap) {
-      // Create the tracker
-      // Create the ledger 
-    }      
+    await this.network.join()   
     this.emit('connected')
   }
 
@@ -266,8 +252,19 @@ export default class Subspace extends EventEmitter {
     this.wallet.profile.proof = proof
   }
 
-  getBalance(address) {
+  getBalance(address = this.wallet.profile.user.id) {
     return this.ledger.getBalance(address)
+  }
+
+  async sendCredits(amount, address) {
+    // send subspace credits to another address
+    const txRecord = await this.ledger.createCreditTx(profile.id, address, amount)
+    const txMessage = await this.network.createGenericMessage('tx', txRecord.getRecord())
+    this.network.gossip(txMessage)
+
+    // should emit an event when tx is confirmed, later
+
+    return txRecord
   }
 
   async pledgeSpace(interval) {
@@ -276,26 +273,39 @@ export default class Subspace extends EventEmitter {
     if (!this.wallet.profile.proof) {
       throw new Error('You must first seed your plot')
     }
-    
-    let tx = await this.ledger.createPledgeTx(interval)
-    this.wallet.profile.pledge = tx.value.script
-    this.network.gossip('tx', tx)
-    return tx
+
+    const profile = this.wallet.getProfile()
+    const pledge = this.wallet.profile.proof.size
+
+    const txRecord = await this.ledger.createPledgeTx(profile.publicKey, pledge, interval)
+    const txMessage = await this.network.createGenericMessage('tx', txRecord.getRecord())
+
+    this.wallet.profile.pledge = {
+      proof: this.wallet.profile.proof.id,
+      size: pledge,
+      interval: interval
+    }
 
     // corresponding code for on('pledge')
     // should emit an event when tx is confirmed 
-      
+
+    this.network.gossip(txMessage)
+    return txRecord
   }
 
-  async sendCredits(amount, address) {
-    // send subspace credits to another address
-    // send a valid tx request to farmers mem pool as a host
-    let tx = await this.ledger.createTx('credit', address, amount)
-    this.network.gossip('tx', tx)
-    return tx
-
-    // should emit an event when tx is confirmed
+  async requestHostPayment() {
+    // on init, check if you have a pledge
+    // if yes, then set a timer for payment 
+    // emit an event when timer expires
+    // call this funciton to request payment, and renew pledge 
   }
+
+ 
+  async createMutableContract() {
+    // this should be the default for now 
+  }
+
+  // may also want to add the ability to do pay per put since the ledger is much faster now
 
   reserveSpace({
     name = DEFAULT_CONTRACT_NAME,
@@ -306,34 +316,37 @@ export default class Subspace extends EventEmitter {
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
   }) {
     return new Promise(async (resolve) => {
-      // initates a new storage contract object
-      // creates an immutable record to serve as the ledger tx
-      // creates a mutable record to serve as the contract state (embedding the immutable tx_id in the state)
-      // the contract id is the hash of the public key of the mutable record
-      // this allows the contract to be addressed on SSDB by its public key or public key hash (either)
-      // we add the block header and each tx_id to contract state then push the full block/shard to contract hosts
-      // we still hash the contract_id once to get the shard_id for storing records and addressing 
-      // then we complete the block header with
-        // the full storage tx
-        // the contract id for the block 
-        // a set of all tx ids 
-      // we gossip the block header to the network
-      // each 
+      // initially called from a subspace full node or console app that is reserving space on behalf of a client
+      // later once clients can earn / own credits they could call directly 
+      // creates a mutable storage contract, backed by an immutable contract tx with a mutable contract state 
+      // signature on funding tx must match signature on contract state 
+          // importantly, funding tx does not point to it's contract state
+          // this provides strong anonymity on the ledger 
+          // this also allows for contract funds to be replenished over time
+            // for example a mutable contract that needs to be renewed
+            // or a mutable contract that needs to have more space added
 
-      // if we embed the tx_id in the contract state
-        // we can validate the contract on receipt (does the node sending contract state, match the node who signed the contract)
-        // we can have anonymity on posting contracts, nobody can just query the ledger and start reading our contract records 
-
-      // submit contract tx to farmers
-      // encode the contract as a plain text mutable record
-      // store the record on the correct hosts for this contract
+      
+      // create the empty mutable record to serve as contract state and id 
 
 
-      // could me mutable or immutable contract, based on TTL
-      // in both cases the contract state will be mutable and contract keys will be created in the SSDB record
-      // the storage tx_id will be embedded in the contract for verificaiton and signatures must match
-        // if a mutable contract then we can add/rev/delete records
-        // if an immutable contract, then we can only add records until size is maxed out 
+      
+      // create the immutable contract tx and tx record, with tx signed by contract keys
+
+      // embed the contract id in the mutable state record 
+
+      // create the contract state object and embed in the record 
+        // public and private key are already embedded in the record 
+        // tx_id of the contract funding tx (this can change over time)
+        // signature that matches the same public key used for the funding tx 
+        // current size of the contract in bytes
+        // an index of all records in the contract 
+        // possibly an ACL for users who may edit the contract and assigned space 
+
+      // update the record (sign and pack)
+
+      // push the contract to contract hosts with txRecord, and stateRecord
+
 
       const profile = this.wallet.getProfile()
 
@@ -352,15 +365,15 @@ export default class Subspace extends EventEmitter {
       }
   
       // create the mutable encoded contract record, decrypted, from public contract data
-      const encodedPublicContractRecord = await this.db.createMutableRecord(contractPublicData, null, false)
-      const decodedPublicContractRecord = await this.db.readMutableRecord(encodedPublicContractRecord)
+      const encodedPublicContractRecord = await this.database.createMutableRecord(contractPublicData, null, false)
+      const decodedPublicContractRecord = await this.database.readMutableRecord(encodedPublicContractRecord)
       
       // update the record with correct info 
       const newContent = {...decodedPublicContractRecord.value.content}
       newContent.id = decodedPublicContractRecord.key
       newContent.publicKey = decodedPublicContractRecord.value.publicKey
       newContent.updatedAt = Date.now()
-      const finalPublicContractRecord = await this.db.updateMutableRecord(newContent, decodedPublicContractRecord)
+      const finalPublicContractRecord = await this.database.updateMutableRecord(newContent, decodedPublicContractRecord)
 
       // reformat into interfaces expected by wallet
       const walletContract = {
@@ -398,7 +411,7 @@ export default class Subspace extends EventEmitter {
       this.network.gossip(gossipMessage)
 
       // contact the contract holders so they may initialize contract state
-      const shardMap = this.db.computeShardAndHostsForKey(contract.id, contract.id, contract.spaceReserved, contract.replicationFactor)
+      const shardMap = this.database.computeShardAndHostsForKey(contract.id, contract.id, contract.spaceReserved, contract.replicationFactor)
       const hosts = new Set(...shardMap.hosts)
       this.addRequest('reserve', finalPublicContractRecord.key, hosts)
 
@@ -436,7 +449,7 @@ export default class Subspace extends EventEmitter {
         }
           
         // validate the contract mutable record
-        const testRequest = await this.db.isValidPutRequest(record, contract)
+        const testRequest = await this.database.isValidPutRequest(record, contract)
         if (!testRequest.valid) {
           response.description = testRequest.reason
           await this.createGenericMessage('put-reply', response)
@@ -447,15 +460,15 @@ export default class Subspace extends EventEmitter {
         // assume valid
 
         // write the record locally
-        await this.db.put(record.key, record.value)
+        await this.database.put(record.key, record.value)
 
         // create or update shard, then update the shard
-        const shardMap = this.db.computeShardAndHostsForKey(record.key, record.value.contract, contract.spaceReserved contract.replicationFactor)
-        const shard = await this.db.getOrCreateShard(shardMap.id, contract.id)
-        await this.db.addRecordToShard(shard.id, record)
+        const shardMap = this.database.computeShardAndHostsForKey(record.key, record.value.contract, contract.spaceReserved contract.replicationFactor)
+        const shard = await this.database.getOrCreateShard(shardMap.id, contract.id)
+        await this.database.addRecordToShard(shard.id, record)
 
         // return a proof of replication 
-        const proof = this.db.createProofOfReplication(record, profile.id)
+        const proof = this.database.createProofOfReplication(record, profile.id)
 
         // create valid contract-reply 
         response.valid = true
@@ -476,13 +489,13 @@ export default class Subspace extends EventEmitter {
         }
 
         // validate the proof of replicaiton
-        const value = await this.db.get(message.data.recordId)
+        const value = await this.database.get(message.data.recordId)
         const record = {
           key: message.data.record.id,
           value: value
         }
-        const typedRecord = this.db.setRecordType(record)
-        const testPOR = this.db.isValidProofOfReplication(message.data.description, typedRecord, message.sender)
+        const typedRecord = this.database.setRecordType(record)
+        const testPOR = this.database.isValidProofOfReplication(message.data.description, typedRecord, message.sender)
         if (!testPOR) {
           throw new Error('Host returned invalid proof of replication')
         }
@@ -496,7 +509,7 @@ export default class Subspace extends EventEmitter {
         if (pendingHosts.size = contract.replicationFactor) {
 
           // decode the record
-          let decodedRecord = await this.db.readRecord(typedRecord)
+          let decodedRecord = await this.database.readRecord(typedRecord)
 
           // hide schema implementation from developer
           delete decodedRecord.kind
@@ -524,7 +537,7 @@ export default class Subspace extends EventEmitter {
   async put(content, encrypted) {
     // create the record, get hosts, and send requests
     const contract = this.wallet.getContract()
-    const record = await this.db.createRecord(content, encrypted)
+    const record = await this.database.createRecord(content, encrypted)
     this.wallet.contract.addRecord(record.key, record.value.size)
     
     // create a put request signed by contract key
@@ -536,15 +549,15 @@ export default class Subspace extends EventEmitter {
     }
     request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject)
 
-    const hosts = this.db.getHosts(record.key, contract)
+    const hosts = this.database.getHosts(record.key, contract)
     await this.requests.add('put', record.key, request, hosts)
     
     this.on('put-request', (message) => {
       // validate the contract request
       const request = message.data 
-      const record = this.db.loadRecord(request.record)
+      const record = this.database.loadRecord(request.record)
       const contract = this.ledger.contracts.get(crypto.getHash(request.contractKey))
-      const testRequest = db.isValidPutRequest(record, contract, request)
+      const testRequest = database.isValidPutRequest(record, contract, request)
       if (!testRequest.valid)  {
         this.requests.respond('put', false, testRequest.reason, record.key)
       }
@@ -556,7 +569,7 @@ export default class Subspace extends EventEmitter {
       }
      
       // store the record, create PoR, and send reply
-      await db.saveRecord(record, contract)
+      await database.saveRecord(record, contract)
       const proof = record.createPoR(this.wallet.profile.options.id)
       await this.requests.respond(message.sender, 'put', true, proof, record.key)
     })
@@ -570,7 +583,7 @@ export default class Subspace extends EventEmitter {
       const contract = this.wallet.getContract()
   
       // validate PoR
-      const record = await db.getRecord(message.data.key)
+      const record = await database.getRecord(message.data.key)
       if (! record.isValidPoR(message.sender, message.data.data))  {
         throw new Error('Host returned invalid proof of replication')
       }
@@ -578,7 +591,7 @@ export default class Subspace extends EventEmitter {
       // remove from pending requests and get size
       const pendingSize = this.requests.size('put', record.key)
       this.requests.remove('put', record.key, message.sender)
-      const shardMap = this.db.getShardAndHostsForKey(record.key, contract)
+      const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
       const hostLength = shardMap.hosts.length()
       
       // resolve on first valid response
@@ -598,17 +611,17 @@ export default class Subspace extends EventEmitter {
 
   async get(key) {
     // get hosts and send requests
-    const keyObject = this.db.parseKey(key)
+    const keyObject = this.database.parseKey(key)
     const contract = this.wallet.getContract()
-    const hosts = db.getHosts(keyObject.recordId, contract)
+    const hosts = database.getHosts(keyObject.recordId, contract)
     await this.requests.add('get', keyObject.recordId, keyObject, hosts)
   
     this.on('get-request', (message) => {
       // unpack key and validate request
-      const keyObject = db.parseKey(message.data) 
-      const record = await this.db.getRecord(keyObject.recordId) 
+      const keyObject = database.parseKey(message.data) 
+      const record = await this.database.getRecord(keyObject.recordId) 
       const contract = this.ledger.contracts.get(crypto.getHash(record.value.contractKey))
-      const testRequest = await db.isValidGetRequest(record, contract, keyObject.shardId)
+      const testRequest = await database.isValidGetRequest(record, contract, keyObject.shardId)
       if (!testRequest.valid)  {
         this.requests.respond('get', false, testRequest.reason, keyObject.recordId)
       }
@@ -628,7 +641,7 @@ export default class Subspace extends EventEmitter {
       const contract = this.wallet.getContract()
   
       // load/validate record and validate PoR
-      const record = await db.loadRecord(message.data.data.record)
+      const record = await database.loadRecord(message.data.data.record)
       if (! record.isValidPoR(message.sender, message.data.data.proof))  {
         throw new Error('Host returned invalid proof of replication')
       }
@@ -636,7 +649,7 @@ export default class Subspace extends EventEmitter {
       // remove from pending requests and get size
       const pendingSize = this.requests.size('get', record.key)
       this.requests.remove('get', record.key, message.sender)
-      const shardMap = this.db.getShardAndHostsForKey(record.key, contract)
+      const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
       const hostLength = shardMap.hosts.length()
       
       // resolve on first valid response
@@ -655,15 +668,15 @@ export default class Subspace extends EventEmitter {
   
   async rev(key, value) {
   
-    const keyObject = this.db.parseKey(key)
+    const keyObject = this.database.parseKey(key)
     const contract = this.wallet.getContract()
   
     // get the old record and update
-    const oldRecord = await this.db.getRecord(key.recordId)
+    const oldRecord = await this.database.getRecord(key.recordId)
     if (oldRecord.value.immutable) {
       throw new Error('Cannot update an immutable record')
     }
-    const newRecord = await this.db.revRecord(key, value)
+    const newRecord = await this.database.revRecord(key, value)
     const sizeDelta = oldRecord.size() - newRecord.size()
     await this.wallet.contract.updateRecord(key, sizeDelta)
 
@@ -677,16 +690,16 @@ export default class Subspace extends EventEmitter {
     request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject)
   
     // get hosts and send update requests
-    const hosts = this.db.getHosts(record.key, contract)
+    const hosts = this.database.getHosts(record.key, contract)
     await this.requests.add('rev', newRecord.key, request, hosts)
   
     this.on('rev-request', (message) => {
       // load the request and new record
       const request = message.data 
-      const newRecord = this.db.loadRecord(request.record)
-      const oldRecord = await this.db.getRecord(newRecord.key)
+      const newRecord = this.database.loadRecord(request.record)
+      const oldRecord = await this.database.getRecord(newRecord.key)
       const contract = this.ledger.contracts.get(crypto.getHash(request.contractKey))
-      const testRequest = await db.isValidRevRequest(oldRecord, newRecord, contract, keyObject.shardId, request)
+      const testRequest = await database.isValidRevRequest(oldRecord, newRecord, contract, keyObject.shardId, request)
       if (!testRequest.valid)  {
         this.requests.respond('rev', false, testRequest.reason, newRecord.key)
       }
@@ -698,7 +711,7 @@ export default class Subspace extends EventEmitter {
       }
   
       // update the record, create PoR and send reply
-      await db.saveRecord(newRecord, contract, true, testRequest.data)
+      await database.saveRecord(newRecord, contract, true, testRequest.data)
       const proof = record.createPoR(this.wallet.profile.options.id)
       await this.requests.respond(message.sender, 'rev', true, proof, newRecord.key)
     })
@@ -712,7 +725,7 @@ export default class Subspace extends EventEmitter {
       const contract = this.wallet.getContract()
   
       // validate PoR
-      const record = await db.getRecord(message.data.key)
+      const record = await database.getRecord(message.data.key)
       if (! record.isValidPoR(message.sender, message.data.data))  {
         throw new Error('Host returned invalid proof of replication')
       }
@@ -720,7 +733,7 @@ export default class Subspace extends EventEmitter {
       // remove from pending requests and get size
       const pendingSize = this.requests.size('rev', record.key)
       this.requests.remove('rev', record.key, message.sender)
-      const shardMap = this.db.getShardAndHostsForKey(record.key, contract)
+      const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
       const hostLength = shardMap.hosts.length()
       
       // resolve on first valid response
@@ -740,9 +753,9 @@ export default class Subspace extends EventEmitter {
   
   async del(key) {
     // get hosts and send requests
-    const keyObject = this.db.parseKey(key)
+    const keyObject = this.database.parseKey(key)
     const contract = this.wallet.getContract()
-    const hosts = db.getHostsFromKey(keyObject.recordId, contract)
+    const hosts = database.getHostsFromKey(keyObject.recordId, contract)
     
     // create a del request signed by contract key
     const proof = {
@@ -758,18 +771,18 @@ export default class Subspace extends EventEmitter {
     this.on('del-request', (message) => {
       // unpack key and validate request
       const request = message.data
-      const keyObject = db.parseKey(message.data.record) 
-      const record = await this.db.getRecord(keyObject.recordId)
+      const keyObject = database.parseKey(message.data.record) 
+      const record = await this.database.getRecord(keyObject.recordId)
       request.record = record
       const contract = this.ledger.contracts.get(crypto.getHash(request.contractKey))
       
-      const testRequest = await db.isValidDelRequest(record, contract, keyObject.shardId, request)
+      const testRequest = await database.isValidDelRequest(record, contract, keyObject.shardId, request)
       if (!testRequest.valid)  {
         this.requests.respond('del', false, testRequest.reason, keyObject.recordId)
       }
   
       // delete the record send PoD back to client
-      await this.db.delRecord(record, keyObject.shardId)
+      await this.database.delRecord(record, keyObject.shardId)
       const proof = record.createPoD()
       await this.request.respond(message.sender, 'del', true, proof, record.key)
     })
@@ -781,7 +794,7 @@ export default class Subspace extends EventEmitter {
   
       const profile = this.wallet.getProfile()
       const contract = this.wallet.getContract()
-      const record = await db.getRecord(message.data.key)
+      const record = await database.getRecord(message.data.key)
   
       // load/validate record and validate PoD
       if (! record.isValidPoD(message.sender, message.data.data))  {
@@ -791,7 +804,7 @@ export default class Subspace extends EventEmitter {
       // remove from pending requests and get size
       const pendingSize = this.requests.size('del', record.key)
       this.requests.remove('del', record.key, message.sender)
-      const shardMap = this.db.getShardAndHostsForKey(record.key, contract)
+      const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
       const hostLength = shardMap.hosts.length()
       
       
@@ -811,30 +824,31 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  startFarmer() {
-   
+  // farmer methods
+
+  async startFarmer() {
     if (this.bootstrap) {
+      this.ledger.isFarming = true
       await this.ledger.bootstrap()
-
-      // bootstrap the ledger
-    } else {
-      // get the ledger 
-    }
-
-    this.ledger.isFarming = true
-
-    // how do I know when to create a block 
-    
       
-  
+    } else {
+      // start downloading the ledger
+      // first get the chain array
+      // for each block in chain
+        // get the block
+        // for each tx in block
+          // get the tx 
+
+      // on resolve, start farming 
+      this.ledger.isFarming = true
+    }
   }
 
   stopFarmer() {
     this.ledger.isFarming = false 
   }
 
-
-  // core host methods
+  // host methods
 
   joinHosts(pledge) {
     // requirements
@@ -874,7 +888,4 @@ export default class Subspace extends EventEmitter {
     // gracefully leave the network as a valid host
   
   }
-
-
-
 }
