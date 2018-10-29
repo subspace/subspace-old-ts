@@ -1,10 +1,10 @@
 import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
-import * as Wallet from '@subspace/wallet'
-import * as Storage from '@subspace/storage'
-// import  Network from '@subspace/network'
+import Wallet from '@subspace/wallet'
+import Storage from '@subspace/storage'
+import Network from '@subspace/network'
 import Tracker from '@subspace/tracker'
-import Ledger from '@subspace/ledger'
+import {Ledger} from '@subspace/ledger'
 import {DataBase, Record} from '@subspace/database'
 
 const DEFAULT_PROFILE_NAME = 'name'
@@ -14,25 +14,29 @@ const DEFAULT_HOST_PLEDGE = 10000000000 // 10 GB in bytes
 const DEFAULT_HOST_INTERVAL = 2628000000 // 1 month in ms
 const DEFAULT_GATEWAY_NODES = []
 const DEFAULT_GATEWAY_COUNT = 1
-const DEFAULT_CONTRACT_NAME = 'dev'
-const DEFAULT_CONTRACT_EMAIL = 'dev@subspace.network'
-const DEFAULT_CONTRACT_PASSPHRASE = 'passphrase'
+const DEFAULT_CONTRACT_NAME = 'key'
+const DEFAULT_CONTRACT_EMAIL = 'key@key.com'
+const DEFAULT_CONTRACT_PASSPHRASE = 'lockandkey'
 const DEFAULT_CONTRACT_SIZE = 1000000000  // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000   // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
 
 export default class Subspace extends EventEmitter {
 
-  // small change
-
   public isInit = false
-  public env: string = null
-  public storage_adapter: string = null
-  public pending: Map<string, string> = new Map()
+  public env = ''
+  public storage_adapter = ''
   public isFarming = false
+  public storage: Storage
+  public network: Network
+  public wallet: Wallet
+  public tracker: Tracker
+  public database: DataBase
+  public ledger: Ledger
+  public pendingRequests: Map<string, string[]> = new Map()
 
   constructor(
-    public name  = DEFAULT_PROFILE_NAME,
+    public name = DEFAULT_PROFILE_NAME,
     public email = DEFAULT_PROFILE_EMAIL,
     public passphrase = DEFAULT_CONTRACT_PASSPHRASE,
     public pledge = null,
@@ -45,47 +49,48 @@ export default class Subspace extends EventEmitter {
     super()
   }
 
-  requests = {
-    pending: <Map<string, string>> new Map(),
-    async add(type, recordId, data, hosts) {
-      // generate and send the request
-      const message = await this.network.createGenericMessage(`${type}-request`, data)
-      for (const host of hosts) {
-        this.network.send(host, message)
-      }
-  
-      // add the requests and copy to pending
-      this.requests.pending.set(crypto.getHash(type + recordId), hosts)
-      this.requests.pending.set(crypto.getHash(recordId + type), hosts)
-    },
-    async remove(type, recordId, host) {
-      const key = crypto.getHash(type + recordId)
-      const request = this.requests.pending.get(key)
-      request.delete(host)
-      this.requests.pending.set(key, request)
-    },
-    resolve(type, recordId) {
-      this.requests.pending.delete(crypto.getHash(type + recordId))
-      const copyKey = crypto.getHash(recordId + type)
-      const hosts = this.requests.pending.get(copyKey)
-      this.requests.pending.delete(copyKey)
-      return hosts
-    },
-    async respond(client, type, valid, data, key) {
-      const response = { valid, data, key }
-      const message = await this.network.createGenericMessage(`${type}-reply`, record)
-      this.network.send(client, message)
-    },
-    size(type, recordId) {
-      return this.requests.pending.get(crypto.getHasin(type + recordId)).size
+  private async addRequest(type: string, recordId: string, data: any, hosts: string[]) {
+    // generate and send the request
+    const message = await this.network.createGenericMessage(`${type}-request`, data)
+    for (const host of hosts) {
+      this.network.send(host, message)
     }
+    // add the requests and copy to pending
+    this.pendingRequests.set(crypto.getHash(type + recordId), hosts)
+    this.pendingRequests.set(crypto.getHash(recordId + type), hosts)
+  }
+
+  private async removeRequest(type: string, recordId: string, host: string) {
+    const key = crypto.getHash(type + recordId)
+    const request = this.pendingRequests.get(key)
+    this.pendingRequests.delete(host)
+    this.pendingRequests.set(key, request)
+  }
+
+  private resolveRequest(type: string, recordId: string) {
+    this.pendingRequests.delete(crypto.getHash(type + recordId))
+    const copyKey = crypto.getHash(recordId + type)
+    const hosts = this.pendingRequests.get(copyKey)
+    this.pendingRequests.delete(copyKey)
+    return hosts
+  }
+
+  // this.requests.respond('put', false, testRequest.reason, record.key)
+  private async respond(client: string, type: string, valid: boolean, data: any, key: string) {
+    const response = { valid, data, key }
+    const message = await this.network.createGenericMessage(`${type}-reply`, record)
+    this.network.send(client, message)
+  }
+
+  size(type: string, recordId: string) {
+    return this.pendingRequests.get(crypto.getHash(type + recordId)).length
   }
   
   async initEnv() {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
       this.env = 'browser' 
-    } else if (await this.network.checkPublicIP()) {
+    } else if (await this.network.()) {
       console.log('Gateway env detected')
       this.env = 'gateway'
     } else {
@@ -99,7 +104,7 @@ export default class Subspace extends EventEmitter {
     if (this.init) return
 
     // determine the node env
-    await this.getEnv()
+    await this.initEnv()
 
     // determine the storage adapter
     if (this.env === 'browser') {
@@ -115,36 +120,29 @@ export default class Subspace extends EventEmitter {
       // if args, will create a new profile from args
       // if existing profile, will load from disk
 
-    this.wallet = new Wallet()
-    await this.wallet.init({
-      storage: this.storage,
-      options: {
-        name: this.name,
-        email: this.email,
-        passphrase: this.passphrase
-      }
-    })
+    this.wallet = new Wallet(this.storage)
+    await this.wallet.init()
 
     // tracker 
     this.tracker = new Tracker(this.storage)
 
     // ledger 
 
-    this.ledger = new Ledger(this.storage, this.wallet, this.tracker)
+    this.ledger = new Ledger(this.storage, this.wallet)
 
     // database
 
-    this.database = new Database(this.storage, this.wallet)
+    this.database = new DataBase(this.storage, this.wallet)
     
     // network
     this.network = new Network(
-      bootstrap = this.bootstrap, 
-      gateway_nodes = this.gateway_nodes, 
-      gateway_count = this.gateway_count, 
-      delegated = this.delegated, 
-      profile = this.wallet,
-      tracker = this.tracker,
-      env = this.env
+      this.bootstrap, 
+      this.gateway_nodes, 
+      this.gateway_count, 
+      this.delegated, 
+      this.wallet,
+      this.tracker,
+      this.env
     )
 
     this.network.on('join', () => this.emit('join'))
@@ -169,29 +167,29 @@ export default class Subspace extends EventEmitter {
           break
         case('tx'):
           // first ensure we have a valid SSDB record wrapping the tx
-          const record = Record.readUnpacked(message.data) 
-          const recordTest = await record.isValid()
-          if (recortTest.valid) {
+          const txRecord = Record.readUnpacked(message.data.key, message.data.value) 
+          const txRecordTest = await txRecord.isValid()
+          if (txRecordTest.valid) {
             // then validate the tx data
-            txTest = await this.ledger.onTx(record)
+            const txTest = await this.ledger.onTx(txRecord)
             if (txTest.valid) {
-              const newMessage = this.network.createGenericMessage('tx', message.data)
-              this.network.gossip(newMessage)
-              this.emit('tx', message.data)
+              const txMessage = this.network.createGenericMessage('tx', message.data)
+              this.network.gossip(txMessage)
+              this.emit('tx', txRecord)
             }
           }          
           break
         case('block'):
           // first validate the immutable record on SSDB
-          const record = Record.readUnpacked(message.data)
-          const recordTest = await record.isValid()
-          if (recordTest.valid) {
+          const blockRecord = Record.readUnpacked(message.data.key, message.data.value)
+          const blockRecordTest = await blockRecord.isValid()
+          if (blockRecordTest.valid) {
             // extract the block data and validate that in ledger
-            blockTest = await this.ledger.onBlock(record)
+            const blockTest = await this.ledger.onBlock(blockRecord)
             if (blockTest.valid) {
-              const newMessage = this.network.createGenericMessage('block', message.data)
-              this.network.gossip(newMessage)
-              this.emit('block', message.data)
+              const blockMessage = this.network.createGenericMessage('block', message.data)
+              this.network.gossip(blockMessage)
+              this.emit('block', blockRecord)
             }
           }
           break
@@ -200,7 +198,7 @@ export default class Subspace extends EventEmitter {
       }
     })
 
-    this.init = true
+    this.isInit = true
     this.emit('ready')
   }
 
@@ -209,7 +207,7 @@ export default class Subspace extends EventEmitter {
     await this.wallet.createProfile(options)
   }
 
-  async deleteProfile(name = 'profile') {
+  async deleteProfile() {
     // deletes the existing profile on disk
     await this.wallet.profile.clear()
   }
@@ -219,8 +217,12 @@ export default class Subspace extends EventEmitter {
   async join() {  
     // join the subspace network as a node
     await this.init()
-    await this.network.join()   
-    this.emit('connected')
+    const joined = await this.network.join()
+    if (joined) {
+      this.emit('connected')
+    } else {
+      throw new Error('Error joining network')
+    }
   }
 
   async leave() {
@@ -229,17 +231,20 @@ export default class Subspace extends EventEmitter {
   }
 
   async connect(nodeId) {
-    await this.network.connect(nodeId)
-    this.emit('connection', nodeId)
+    const connection = await this.network.connect(nodeId)
+    this.emit('connection', connection)
   }
 
   async disconnect(nodeId) {
-    await this.network.discconnect(nodeId)
-    this.emit('disconnected', nodeId)
+    await this.network.disconnect(nodeId)
+    this.emit('disconnected')
   }
 
   async send(nodeId, message) {
-    await this.network.send(nodeId, message)
+    const sent = await this.network.send(nodeId, message)
+    if (!sent) {
+      throw new Error('Error sending message')
+    }
   }
 
   // ledger tx methods
@@ -258,6 +263,7 @@ export default class Subspace extends EventEmitter {
 
   async sendCredits(amount, address) {
     // send subspace credits to another address
+    const profile = this.wallet.getProfile()
     const txRecord = await this.ledger.createCreditTx(profile.id, address, amount)
     const txMessage = await this.network.createGenericMessage('tx', txRecord.getRecord())
     this.network.gossip(txMessage)
@@ -283,7 +289,8 @@ export default class Subspace extends EventEmitter {
     this.wallet.profile.pledge = {
       proof: this.wallet.profile.proof.id,
       size: pledge,
-      interval: interval
+      interval: interval,
+      createdAt: Date.now()
     }
 
     // corresponding code for on('pledge')
@@ -298,11 +305,6 @@ export default class Subspace extends EventEmitter {
     // if yes, then set a timer for payment 
     // emit an event when timer expires
     // call this funciton to request payment, and renew pledge 
-  }
-
- 
-  async createMutableContract() {
-    // this should be the default for now 
   }
 
   // may also want to add the ability to do pay per put since the ledger is much faster now
@@ -326,105 +328,84 @@ export default class Subspace extends EventEmitter {
             // for example a mutable contract that needs to be renewed
             // or a mutable contract that needs to have more space added
 
-      
+            
       // create the empty mutable record to serve as contract state and id 
-
-
-      
-      // create the immutable contract tx and tx record, with tx signed by contract keys
-
-      // embed the contract id in the mutable state record 
-
-      // create the contract state object and embed in the record 
-        // public and private key are already embedded in the record 
-        // tx_id of the contract funding tx (this can change over time)
-        // signature that matches the same public key used for the funding tx 
-        // current size of the contract in bytes
-        // an index of all records in the contract 
-        // possibly an ACL for users who may edit the contract and assigned space 
-
-      // update the record (sign and pack)
-
-      // push the contract to contract hosts with txRecord, and stateRecord
-
-
       const profile = this.wallet.getProfile()
+      const contractRecord = await Record.createMutable(null, false, profile.publicKey)
 
-      // init the public contract data
-      const contractPublicData = {
-        id: null,                                 // add after creating the record, hash of contract public key
-        owner: profile.id,                        // my nodeId
-        ttl: ttl,                                 // from args
-        replicationFactor: replicationFactor,     // from args
-        spaceReserved: spaceReserved,             // from args
-        spaceUsed: 0,
-        createdAt: Date.now(),
-        updatedAt: null,
-        recordIndex: new Set(),
-        publicKey: null,                          // after creating the record, full public key of contract
+      // unpack to extract the contract keys
+      await contractRecord.unpack(profile.privateKeyObject)
+      const privateKey = contractRecord.value.privateKey
+      const publicKey = contractRecord.value.publicKey
+      await contractRecord.pack(profile.publicKey)
+
+      // sign the contract public key with the private key 
+      const privateKeyObject = await crypto.getPrivateKeyObject(privateKey, passphrase)
+      const contractSig = await crypto.sign(publicKey, privateKeyObject)
+
+      // tx will be saved on apply tx 
+      // contract record should be saved for future updates 
+        // state is already being saved in the contract object 
+        // each host will hold the state
+        // when we send an update it should only inlcude the new state
+
+      // create the immutable contract tx and tx record, with included contract signature
+      const contractTxRecord = await this.ledger.createMutableContractTx(spaceReserved, replicationFactor, ttl, contractSig)
+
+      // gossip the contract tx to the network
+      const contractTxMessage = await this.network.createGenericMessage('tx', contractTxRecord.getRecord())
+      this.network.gossip(contractTxMessage)
+
+      // update the contract record with correct state 
+      const contractState = {
+        fundingTx: contractTxRecord.key,    // the current funding tx, can change over time
+        spaceUsed: 0,                       // size of all data written to contract
+        recordIndex: new Set()              // index of all records in the contract
       }
-  
-      // create the mutable encoded contract record, decrypted, from public contract data
-      const encodedPublicContractRecord = await this.database.createMutableRecord(contractPublicData, null, false)
-      const decodedPublicContractRecord = await this.database.readMutableRecord(encodedPublicContractRecord)
       
-      // update the record with correct info 
-      const newContent = {...decodedPublicContractRecord.value.content}
-      newContent.id = decodedPublicContractRecord.key
-      newContent.publicKey = decodedPublicContractRecord.value.publicKey
-      newContent.updatedAt = Date.now()
-      const finalPublicContractRecord = await this.database.updateMutableRecord(newContent, decodedPublicContractRecord)
-
-      // reformat into interfaces expected by wallet
+      await contractRecord.update(contractState, profile)
+      
+      // add the contract keys and data to your wallet
       const walletContract = {
         key: {
-          id: newContent.id,
+          id: contractRecord.key,
           type: 'contract',
-          createdAt: newContent.createdAt,
-          public: decodedPublicContractRecord.value.publicKey,
-          private: decodedPublicContractRecord.value.privateKey,
-          privateObject: await crypto.getPrivateKeyObject(decodedPublicContractRecord.value.privateKey, passphrase)
-
+          createdAt: contractRecord.value.createdAt,
+          public: publicKey,
+          private: privateKey,
+          privateObject: await crypto.getPrivateKeyObject(privateKey, passphrase)
         },
         options: {
-          id: newContent.id,
-          owner: profile.id,
+          id: contractRecord.key,
           name: name,
           email: email,
           passphrase: passphrase,
           ttl: ttl,
           replicationFactor: replicationFactor,
           spaceReserved: spaceReserved,
-          createdAt: newContent.createdAt 
+          createdAt: contractRecord.value.createdAt 
         },
         state: {
-          spaceUsed: newContent.spaceUsed,
-          updatedAt: newContent.updatedAt,
-          recordIndex: newContent.recordIndex
+          fundingTx: contractTxRecord.key,
+          updatedAt: contractRecord.value.updatedAt,
+          recordIndex: contractState.recordIndex
         }
       }
-
-      // store the contract in wallet, create tx and gossip
-      const contract = this.wallet.contract.storeContract(walletContract)
-      const tx = await this.ledger.createContractTx(contract)
-      const gossipMessage = await this.network.createGenericMessage('tx', tx)
-      this.network.gossip(gossipMessage)
+      
+      this.wallet.contract.storeContract(walletContract)
+      const contract = this.wallet.getContract()
 
       // contact the contract holders so they may initialize contract state
-      const shardMap = this.database.computeShardAndHostsForKey(contract.id, contract.id, contract.spaceReserved, contract.replicationFactor)
-      const hosts = new Set(...shardMap.hosts)
-      this.addRequest('reserve', finalPublicContractRecord.key, hosts)
-
+      
       const data = {
-        tx: tx,
+        tx: contractTxRecord,
         contract: contract,
-        record: finalPublicContractRecord
+        record: contractRecord
       }
-      const hostMessage = await this.network.createGenericMessage('contract-request', data)
 
-      for (const hostId of hosts) {
-        this.network.send(hostId, hostMessage)
-      }
+      const shardMap = this.database.getShardAndHostsForKey(contract.id, contract)
+      this.addRequest('contract', contractRecord.key, data, shardMap.hosts)
+
 
       // when host to hold contract receives the contract-request
       this.on('contract-request', message => {

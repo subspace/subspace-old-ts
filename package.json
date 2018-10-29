@@ -5,12 +5,12 @@
   "main": "main.js",
   "dependencies": {
     "@subspace/crypto": "github:subspace/crypto",
-    "@subspace/wallet": "github:subspace/wallet",
-    "@subspace/storage": "github:subspace/storage",
     "@subspace/database": "github:subspace/database",
     "@subspace/ledger": "github:subspace/ledger",
     "@subspace/network": "github:subspace/network",
-    "@subspace/tracker": "github:subspace/tracker"
+    "@subspace/storage": "github:subspace/storage",
+    "@subspace/tracker": "github:subspace/tracker",
+    "@subspace/wallet": "github:subspace/wallet"
   },
   "devDependencies": {},
   "scripts": {
