@@ -2,7 +2,8 @@
   "name": "@subspace/subspace",
   "version": "1.0.0",
   "description": "",
-  "main": "main.js",
+  "main": "dist/subspace.js",
+  "types": "dist/subspace.d.ts",
   "dependencies": {
     "@subspace/crypto": "github:subspace/crypto",
     "@subspace/database": "github:subspace/database",
@@ -12,10 +13,19 @@
     "@subspace/tracker": "github:subspace/tracker",
     "@subspace/wallet": "github:subspace/wallet"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/jest": "^23.3.1",
+    "@types/node": "^10.9.2",
+    "@types/ws": "^6.0.1",
+    "jest": "^23.5.0",
+    "tape": "^4.9.1",
+    "ts-jest": "^23.1.4",
+    "ts-node": "^7.0.1",
+    "typescript": "^3.0.1"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC"
+  "author": "subspace-labs",
+  "license": "MIT"
 }
