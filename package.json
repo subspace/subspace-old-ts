@@ -8,15 +8,10 @@
     "@subspace/crypto": "github:subspace/crypto",
     "@subspace/database": "github:subspace/database",
     "@subspace/ledger": "github:subspace/ledger",
-<<<<<<< HEAD
-=======
-    "@subspace/profile": "github:subspace/profile",
->>>>>>> ad69ee2482f9627f805967bb0225183ecfe47dcd
     "@subspace/network": "github:subspace/network",
     "@subspace/storage": "github:subspace/storage",
     "@subspace/tracker": "github:subspace/tracker",
     "@subspace/wallet": "github:subspace/wallet"
-<<<<<<< HEAD
   },
   "devDependencies": {
     "@types/jest": "^23.3.1",
@@ -27,8 +22,6 @@
     "ts-jest": "^23.1.4",
     "ts-node": "^7.0.1",
     "typescript": "^3.0.1"
-=======
->>>>>>> ad69ee2482f9627f805967bb0225183ecfe47dcd
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
