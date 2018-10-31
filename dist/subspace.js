@@ -109,7 +109,7 @@ class Subspace extends events_1.default {
     }
     startMessagePruner() {
         // expire all messages older than 10 minutes, every 10 minutes
-        setInterval(() => {
+        const messagePruningInterval = setInterval(() => {
             const cutoffTime = Date.now() - 600000;
             this.messages.forEach((timestamp, message) => {
                 if (timestamp <= cutoffTime) {
@@ -1010,7 +1010,7 @@ class Subspace extends events_1.default {
                     response.records.push(record);
                 }
                 // once the new host is active on the tracker, this node will drop the shard and records
-                let evictedShard = null;
+                let evictedShard;
                 if (this.evictedShards.has(message.sender)) {
                     evictedShard = this.evictedShards.get(message.sender);
                 }
@@ -1117,7 +1117,7 @@ class Subspace extends events_1.default {
             }
         });
     }
-    async replciateShards(nodeId) {
+    async replicateShards(nodeId) {
         // derive all shards for this host and see if I am the next closest host
         const profile = this.wallet.getProfile();
         for (const [recordId, contract] of this.ledger.clearedContracts) {
@@ -1155,7 +1155,7 @@ class Subspace extends events_1.default {
                     // valid leave, gossip back out
                     await this.network.gossip(message);
                     // see if I need to replicate any shards for this host
-                    this.replciateShards(message.sender);
+                    this.replicateShards(message.sender);
                     // deactivate the node in the tracker after computing shards
                     this.tracker.updateEntry(leave);
                 }
@@ -1256,7 +1256,7 @@ class Subspace extends events_1.default {
                 // valid failure if at least 2/3 of signatures are valid
                 if (validSigs >= neighbors.size * (2 / 3)) {
                     // check to see if I need to replicate shards
-                    this.replciateShards(failure.nodeId);
+                    this.replicateShards(failure.nodeId);
                     // deactivate the node in the tracker
                     this.tracker.updateEntry(failure);
                     // continue to spread the failure message

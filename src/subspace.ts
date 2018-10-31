@@ -126,7 +126,7 @@ export default class Subspace extends EventEmitter {
 
   private startMessagePruner() {
     // expire all messages older than 10 minutes, every 10 minutes
-    setInterval(() => {
+    const messagePruningInterval = setInterval(() => {
       const cutoffTime = Date.now() - 600000
       this.messages.forEach((timestamp, message) => {
         if (timestamp <= cutoffTime) {
@@ -1209,7 +1209,7 @@ export default class Subspace extends EventEmitter {
         }
 
         // once the new host is active on the tracker, this node will drop the shard and records
-        let evictedShard: Set<string> = null
+        let evictedShard: Set<string>
         if (this.evictedShards.has(message.sender)) {
           evictedShard = this.evictedShards.get(message.sender)
         } else {  
@@ -1336,7 +1336,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async replciateShards(nodeId: string) {
+  private async replicateShards(nodeId: string) {
     // derive all shards for this host and see if I am the next closest host
     const profile = this.wallet.getProfile()
     for (const [recordId, contract] of this.ledger.clearedContracts) {
@@ -1378,7 +1378,7 @@ export default class Subspace extends EventEmitter {
           await this.network.gossip(message)
           
           // see if I need to replicate any shards for this host
-          this.replciateShards(message.sender)
+          this.replicateShards(message.sender)
 
           // deactivate the node in the tracker after computing shards
           this.tracker.updateEntry(leave)
@@ -1491,7 +1491,7 @@ export default class Subspace extends EventEmitter {
         if (validSigs >= neighbors.size*(2/3)) {
 
           // check to see if I need to replicate shards
-          this.replciateShards(failure.nodeId)
+          this.replicateShards(failure.nodeId)
 
           // deactivate the node in the tracker
           this.tracker.updateEntry(failure)

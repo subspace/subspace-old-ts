@@ -84,7 +84,7 @@ export default class Subspace extends EventEmitter {
     connectToNeighbor(nodeId: string): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
     joinHosts(): Promise<void>;
-    private replciateShards;
+    private replicateShards;
     leaveHosts(): Promise<void>;
     onHostFailure(): Promise<void>;
 }
