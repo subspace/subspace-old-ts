@@ -7,7 +7,7 @@ import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
 import { IGatewayNodeObject } from '@subspace/network/dist/interfaces';
-import { INeighborProof } from './interfaces';
+import { INeighborProof, IPendingFailure } from './interfaces';
 import { IPledge } from '@subspace/wallet/dist/interfaces';
 export default class Subspace extends EventEmitter {
     name: string;
@@ -32,6 +32,8 @@ export default class Subspace extends EventEmitter {
     messages: Map<string, number>;
     neighbors: Set<string>;
     neighborProofs: Map<string, INeighborProof>;
+    failedNeighbors: Map<string, boolean>;
+    pendingFailures: Map<string, IPendingFailure>;
     evictedShards: Map<string, Set<string>>;
     isHosting: boolean;
     constructor(name?: string, email?: string, passphrase?: string, pledge?: IPledge, interval?: number, bootstrap?: boolean, gateway_nodes?: IGatewayNodeObject[], gateway_count?: number, delegated?: boolean);
@@ -82,6 +84,7 @@ export default class Subspace extends EventEmitter {
     connectToNeighbor(nodeId: string): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
     joinHosts(): Promise<void>;
+    private replciateShards;
     leaveHosts(): Promise<void>;
     onHostFailure(): Promise<void>;
 }

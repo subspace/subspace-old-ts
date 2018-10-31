@@ -1,4 +1,5 @@
 import { Record } from "@subspace/database"
+import { ISignatureObject } from "@subspace/tracker/dist/interfaces";
 
 export interface IRecordObject {
   key: string,
@@ -99,5 +100,11 @@ export interface IShardResponse {
   shardId: string
   contractId: string
   records: Record[]
+}
+
+export interface IPendingFailure {
+  neighbors: Set<string>
+  signatures: ISignatureObject[]
+  createdAt: number
 }
 

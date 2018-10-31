@@ -50,6 +50,8 @@ class Subspace extends events_1.default {
         this.messages = new Map();
         this.neighbors = new Set();
         this.neighborProofs = new Map();
+        this.failedNeighbors = new Map();
+        this.pendingFailures = new Map();
         this.evictedShards = new Map();
         this.isHosting = false;
     }
@@ -186,13 +188,8 @@ class Subspace extends events_1.default {
         this.network.on('join', () => this.emit('join'));
         this.network.on('leave', () => this.emit('leave'));
         this.network.on('connection', connection => this.emit('connection', connection.node_id));
-        this.network.on('disconnection', connection => {
-            if (this.isHosting) {
-            }
-            // check if this is a neighbor
-            // also check if the neighbor has fully joined the tracker before starting
-            // if so, call startHostFailure()
-            this.emit('disconnection', connection.node_id);
+        this.network.on('disconnection', (connection) => {
+            this.emit('disconnection', connection.nodeId);
         });
         this.network.on('message', async (message) => {
             let valid = false;
@@ -1122,6 +1119,24 @@ class Subspace extends events_1.default {
             }
         });
     }
+    async replciateShards(nodeId) {
+        // derive all shards for this host and see if I am the next closest host
+        const profile = this.wallet.getProfile();
+        for (const [recordId, contract] of this.ledger.clearedContracts) {
+            const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
+            for (const shardId of shards) {
+                const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts;
+                // if we are both in the enlarged host array 
+                if (hosts.includes(nodeId) && hosts.includes(profile.id)) {
+                    // and I am last host
+                    if (hosts[hosts.length - 1] === profile.id) {
+                        // get the shard from the first host
+                        this.getShard(hosts[0], shardId, recordId);
+                    }
+                }
+            }
+        }
+    }
     async leaveHosts() {
         // leave the host network gracefully, disconnecting from all valid neighbors
         const message = await this.tracker.createLeaveMessage();
@@ -1141,21 +1156,8 @@ class Subspace extends events_1.default {
                 if (entry && entry.status) {
                     // valid leave, gossip back out
                     await this.network.gossip(message);
-                    // drive all shards for this host and see if I am the next closest host
-                    for (const [recordId, contract] of this.ledger.clearedContracts) {
-                        const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
-                        for (const shardId of shards) {
-                            const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts;
-                            // if we are both in the enlarged host array 
-                            if (hosts.includes(message.sender) && hosts.includes(profile.id)) {
-                                // and I am last host
-                                if (hosts[hosts.length - 1] === profile.id) {
-                                    // get the shard from the first host
-                                    this.getShard(hosts[0], shardId, recordId);
-                                }
-                            }
-                        }
-                    }
+                    // see if I need to replicate any shards for this host
+                    this.replciateShards(message.sender);
                     // deactivate the node in the tracker after computing shards
                     this.tracker.updateEntry(leave);
                 }
@@ -1164,33 +1166,109 @@ class Subspace extends events_1.default {
     }
     async onHostFailure() {
         // listen for and validate disconnection of my host neighbors
-        this.on('disconnection', () => {
-            // if neighbor
-            // wait for a random timeout within a constant range (say 30 seconds)
-            // attempt to ping 
-            // if no reply 
-            // compute the failed hosts neighbors 
-            // create a signed failure message
-            // send to each neighbor 
-            // if failed they will reply with a signature
-            // once you have 2/3 signatures turn into a failure proof
-            // gossip the failure proof to the host network 
+        this.on('disconnection', async (nodeId) => {
+            if (this.isHosting) {
+                if (this.neighbors.has(nodeId)) {
+                    const entry = this.tracker.getEntry(nodeId);
+                    if (entry && entry.status) {
+                        // a valid neighbor has failed 
+                        this.failedNeighbors.set(nodeId, false);
+                        const timeout = Math.floor(Math.random() * Math.floor(10));
+                        setTimeout(async () => {
+                            // later attempt to ping the node 
+                            // if failure entry is still false (have not received a failure message)
+                            const entry = this.failedNeighbors.get(nodeId);
+                            if (!entry) {
+                                this.failedNeighbors.set(nodeId, true);
+                                // compute their neighbors
+                                const profile = this.wallet.getProfile();
+                                const hosts = this.tracker.getActiveHosts();
+                                const neighbors = new Set([...this.tracker.getNeighbors(nodeId, hosts)]);
+                                neighbors.delete(profile.id);
+                                // track the failures 
+                                const pendingFailure = {
+                                    neighbors,
+                                    signatures: [],
+                                    createdAt: Date.now()
+                                };
+                                this.pendingFailures.set(nodeId, pendingFailure);
+                                // start the failure message 
+                                const failureMessage = await this.tracker.createFailureMessage(nodeId);
+                                for (const neighbor of neighbors) {
+                                    await this.network.send(neighbor, failureMessage);
+                                }
+                            }
+                        }, timeout * 1000);
+                    }
+                }
+            }
         });
-        this.on('failure-request', () => {
+        this.on('failure-request', async (message) => {
+            // reply to a failure inquiry regarding one of my neighbors 
+            const failure = message.data;
+            // if you have detected the failure and have not already signed or created a failure message
+            if (this.failedNeighbors.has(failure.nodeId)) {
+                const entry = this.failedNeighbors.get(failure.nodeId);
+                if (!entry) {
+                    // append signature to failure message
+                    this.failedNeighbors.set(failure.nodeId, true);
+                    const response = await this.tracker.signFailureMessage(failure);
+                    const responseMessage = await this.network.createGenericMessage('failure-reply', response);
+                    this.network.send(message.sender, responseMessage);
+                }
+            }
         });
-        this.on('failure-reply', () => {
+        this.on('failure-reply', async (message) => {
+            const response = message.data;
+            // validate the signature
+            const unsignedResponse = Object.assign({}, response);
+            unsignedResponse.signature = null;
+            // if valid signature, add to pending failure 
+            if (await crypto.isValidSignature(unsignedResponse, response.publicKey, response.signature)) {
+                const pendingFailure = this.pendingFailures.get(response.nodeId);
+                pendingFailure.signatures.push(response);
+                this.pendingFailures.set(response.nodeId, pendingFailure);
+                // once you have 2/3 signatures turn into a failure proof
+                if (pendingFailure.signatures.length >= pendingFailure.neighbors.size * (2 / 3)) {
+                    // resolve the failure request 
+                    this.pendingFailures.delete(response.nodeId);
+                    // create and gossip the failure message 
+                    const fullFailureMessage = await this.tracker.compileFailureMessage(response.nodeId, pendingFailure.createdAt, pendingFailure.signatures);
+                    this.network.gossip(fullFailureMessage);
+                }
+            }
         });
         // listen for and validate gossiped failures of other hosts neighbors
-        this.on('host-failure', (message) => {
-            // check the host status on the tracker
-            // if active
-            // compute the neighbors
-            // for each failure proof 
-            // validate it is from a neighbor
-            // validate the signature 
-            // if you have signatures from 2/3 of the hosts
-            // deactivate the node in the lht
-            // gossip the message back out to hosts 
+        this.on('host-failure', async (message) => {
+            const failure = message.data;
+            const entry = this.tracker.getEntry(failure.nodeId);
+            if (entry && entry.status) {
+                const hosts = this.tracker.getActiveHosts();
+                const neighbors = new Set([...this.tracker.getNeighbors(failure.nodeId, hosts)]);
+                let validSigs = 0;
+                for (const signature of failure.signatures) {
+                    if (neighbors.has(crypto.getHash(signature.publicKey))) {
+                        const unsignedSig = Object.assign({}, signature);
+                        unsignedSig.signature = null;
+                        if (await crypto.isValidSignature(signature, signature.signature, signature.publicKey)) {
+                            validSigs++;
+                        }
+                    }
+                }
+                // valid failure if at least 2/3 of signatures are valid
+                if (validSigs >= neighbors.size * (2 / 3)) {
+                    // check to see if I need to replicate shards
+                    this.replciateShards(failure.nodeId);
+                    // deactivate the node in the tracker
+                    this.tracker.updateEntry(failure);
+                    // continue to spread the failure message
+                    this.network.gossip(message);
+                    // remove the node from pending failure if I am a neighbor
+                    if (this.pendingFailures.has(failure.nodeId)) {
+                        this.pendingFailures.delete(failure.nodeId);
+                    }
+                }
+            }
         });
     }
 }
