@@ -33,6 +33,7 @@ export default class Subspace extends EventEmitter {
     neighbors: Set<string>;
     neighborProofs: Map<string, INeighborProof>;
     evictedShards: Map<string, Set<string>>;
+    isHosting: boolean;
     constructor(name?: string, email?: string, passphrase?: string, pledge?: IPledge, interval?: number, bootstrap?: boolean, gateway_nodes?: IGatewayNodeObject[], gateway_count?: number, delegated?: boolean);
     private addRequest;
     private removeRequest;

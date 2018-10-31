@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#6e5aebac5765e0fbbb33f4fcadf4e22bf9014dc0"
+  resolved "git+ssh://git@github.com/subspace/network.git#ab0da5714a179c7de7746a82d8005d7dc581f11f"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@types/openpgp" "^4.0.0"

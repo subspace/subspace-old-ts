@@ -9,7 +9,7 @@ import {DataBase, Record, IValue} from '@subspace/database'
 import {IGenericMessage, IGatewayNodeObject } from '@subspace/network/dist/interfaces';
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse } from './interfaces';
 import { IKey, IContract, IContractData, IPledge } from '@subspace/wallet/dist/interfaces';
-import { IMessage, IHostMessage, IEntryObject, IJoinObject } from '@subspace/tracker/dist/interfaces';
+import { IMessage, IHostMessage, IEntryObject, IJoinObject, ILeaveObject } from '@subspace/tracker/dist/interfaces';
 import { message } from 'openpgp';
 import { promises } from 'fs';
 
@@ -44,6 +44,7 @@ export default class Subspace extends EventEmitter {
   public neighbors: Set <string> = new Set()
   public neighborProofs: Map <string, INeighborProof> = new Map()
   public evictedShards: Map <string, Set<string>> = new Map()
+  public isHosting = false
 
   constructor(
     public name = DEFAULT_PROFILE_NAME,
@@ -225,6 +226,9 @@ export default class Subspace extends EventEmitter {
 
     this.network.on('disconnection', connection => {
 
+      if (this.isHosting) {
+
+      }
       // check if this is a neighbor
       // also check if the neighbor has fully joined the tracker before starting
       // if so, call startHostFailure()
@@ -1292,6 +1296,7 @@ export default class Subspace extends EventEmitter {
     const joinMessage = await this.tracker.createJoinMessage(publicIP, isGateway, signatures)
     await this.network.gossip(joinMessage)
     this.tracker.updateEntry(joinMessage.data)
+    this.isHosting = true
     this.emit('joined-hosts')
 
     // on receipt of join message by each host
@@ -1337,34 +1342,47 @@ export default class Subspace extends EventEmitter {
   }
 
   public async leaveHosts() {
-    
     // leave the host network gracefully, disconnecting from all valid neighbors
-    const message = await this.tracker.createFailureMessage()
-    this.network.broadcast(this.network.neighbors, message)
-    
-    // disconnect from each host
-    this.network.connections.forEach((connection, index) => {
-      if (this.network.neighbors.includes(connection.nodeId))
-      connection.socket.close()
-      this.network.connections.splice(index, 1)
-      this.network.removeNodeFromGraph(connection.nodeId)
-      this.emit('disconnection', connection)
-      return
-    })
+    const message = await this.tracker.createLeaveMessage()
+    await this.network.gossip(message)
+    this.isHosting = false
+    this.neighbors.clear
+    await this.network.leaveHosts()
 
-    // reset my neighbors 
-    this.network.neighbors = []
+    // on receipt of leave message by each host
+    this.network.on('host-leave', async (message: IHostMessage) => {
+      const leave: ILeaveObject = message.data
+      const profile = this.wallet.getProfile()
 
-    this.network.on('host-leave', (message: IHostMessage) => {
-      // validate the message has proper signature
-      // gossip the message back out to the network
+      // validate the signature
+      const unsignedLeave = {...leave}
+      unsignedLeave.signature = null
+      if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
+        const entry = this.tracker.getEntry(message.sender)
+        if (entry && entry.status) {
+          // valid leave, gossip back out
+          await this.network.gossip(message)
+          
+          // drive all shards for this host and see if I am the next closest host
+          for (const [recordId, contract] of this.ledger.clearedContracts) {
+            const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
+            for (const shardId of shards) {
+              const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts
+              // if we are both in the enlarged host array 
+              if (hosts.includes(message.sender) && hosts.includes(profile.id)) {
+                // and I am last host
+                if (hosts[hosts.length -1] === profile.id) {
+                  // get the shard from the first host
+                  this.getShard(hosts[0], shardId, recordId)
+                }
+              }
+            }
+          }
 
-      // deactivate the host in the lht 
-
-      // see if I am responisble for any of their shards 
-        // if I have the shard, send to new furthest host
-        // if I am the new furthest host, get the shard 
-     
+          // deactivate the node in the tracker after computing shards
+          this.tracker.updateEntry(leave)
+        }
+      }
     })
   }
 

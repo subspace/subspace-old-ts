@@ -51,6 +51,7 @@ class Subspace extends events_1.default {
         this.neighbors = new Set();
         this.neighborProofs = new Map();
         this.evictedShards = new Map();
+        this.isHosting = false;
     }
     async addRequest(type, recordId, data, hosts) {
         // generate and send the request
@@ -186,6 +187,8 @@ class Subspace extends events_1.default {
         this.network.on('leave', () => this.emit('leave'));
         this.network.on('connection', connection => this.emit('connection', connection.node_id));
         this.network.on('disconnection', connection => {
+            if (this.isHosting) {
+            }
             // check if this is a neighbor
             // also check if the neighbor has fully joined the tracker before starting
             // if so, call startHostFailure()
@@ -1081,6 +1084,7 @@ class Subspace extends events_1.default {
         const joinMessage = await this.tracker.createJoinMessage(publicIP, isGateway, signatures);
         await this.network.gossip(joinMessage);
         this.tracker.updateEntry(joinMessage.data);
+        this.isHosting = true;
         this.emit('joined-hosts');
         // on receipt of join message by each host
         this.on('host-join', async (message) => {
@@ -1120,26 +1124,42 @@ class Subspace extends events_1.default {
     }
     async leaveHosts() {
         // leave the host network gracefully, disconnecting from all valid neighbors
-        const message = await this.tracker.createFailureMessage();
-        this.network.broadcast(this.network.neighbors, message);
-        // disconnect from each host
-        this.network.connections.forEach((connection, index) => {
-            if (this.network.neighbors.includes(connection.nodeId))
-                connection.socket.close();
-            this.network.connections.splice(index, 1);
-            this.network.removeNodeFromGraph(connection.nodeId);
-            this.emit('disconnection', connection);
-            return;
-        });
-        // reset my neighbors 
-        this.network.neighbors = [];
-        this.network.on('host-leave', (message) => {
-            // validate the message has proper signature
-            // gossip the message back out to the network
-            // deactivate the host in the lht 
-            // see if I am responisble for any of their shards 
-            // if I have the shard, send to new furthest host
-            // if I am the new furthest host, get the shard 
+        const message = await this.tracker.createLeaveMessage();
+        await this.network.gossip(message);
+        this.isHosting = false;
+        this.neighbors.clear;
+        await this.network.leaveHosts();
+        // on receipt of leave message by each host
+        this.network.on('host-leave', async (message) => {
+            const leave = message.data;
+            const profile = this.wallet.getProfile();
+            // validate the signature
+            const unsignedLeave = Object.assign({}, leave);
+            unsignedLeave.signature = null;
+            if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
+                const entry = this.tracker.getEntry(message.sender);
+                if (entry && entry.status) {
+                    // valid leave, gossip back out
+                    await this.network.gossip(message);
+                    // drive all shards for this host and see if I am the next closest host
+                    for (const [recordId, contract] of this.ledger.clearedContracts) {
+                        const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
+                        for (const shardId of shards) {
+                            const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts;
+                            // if we are both in the enlarged host array 
+                            if (hosts.includes(message.sender) && hosts.includes(profile.id)) {
+                                // and I am last host
+                                if (hosts[hosts.length - 1] === profile.id) {
+                                    // get the shard from the first host
+                                    this.getShard(hosts[0], shardId, recordId);
+                                }
+                            }
+                        }
+                    }
+                    // deactivate the node in the tracker after computing shards
+                    this.tracker.updateEntry(leave);
+                }
+            }
         });
     }
     async onHostFailure() {
