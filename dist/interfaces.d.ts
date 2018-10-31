@@ -24,7 +24,7 @@ export interface IGetResponse {
     valid: boolean;
     key: string;
     reason: string;
-    record: IRecordObject;
+    record?: IRecordObject;
 }
 export interface IRevRequest {
     record: IRecordObject;

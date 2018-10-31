@@ -139,7 +139,7 @@ class Subspace extends events_1.default {
         }
     }
     async init() {
-        if (this.init)
+        if (this.isInit)
             return;
         // determine the node env
         await this.initEnv();
@@ -242,37 +242,34 @@ class Subspace extends events_1.default {
     }
     async deleteProfile() {
         // deletes the existing profile on disk
-        await this.wallet.profile.clear();
+        if (this.wallet.profile.user) {
+            await this.wallet.profile.clear();
+        }
     }
     // core network methods
     async join() {
-        // join the subspace network as a node
+        // join the subspace network as a node, connecting to some gateway nodes
         await this.init();
         const joined = await this.network.join();
-        if (joined) {
-            this.emit('connected');
-        }
-        else {
-            throw new Error('Error joining network');
-        }
+        this.emit('join');
     }
     async leave() {
+        // leave the subspace network, disconnecting from all peers
         await this.network.leave();
-        this.emit('disconnected');
+        this.emit('leave');
     }
     async connect(nodeId) {
+        // connect to another node directly as a peer
         const connection = await this.network.connect(nodeId);
         this.emit('connection', connection);
     }
     async disconnect(nodeId) {
+        // disconnect from another node as a peer
         await this.network.disconnect(nodeId);
-        this.emit('disconnected');
+        this.emit('disconnection');
     }
     async send(nodeId, message) {
-        const sent = await this.network.send(nodeId, message);
-        if (!sent) {
-            throw new Error('Error sending message');
-        }
+        await this.network.send(nodeId, message);
     }
     // ledger tx methods
     async seedPlot(size) {
@@ -319,11 +316,12 @@ class Subspace extends events_1.default {
     setPaymentTimer() {
         // called on init 
         const pledge = this.wallet.profile.pledge;
+        // if I have an active pledge, set a timeout to request payment
         if (pledge.interval) {
-            const timeout = (pledge.createdAt + pledge.interval) - Date.now();
+            const timeToPayment = (pledge.createdAt + pledge.interval) - Date.now();
             setTimeout(() => {
                 this.requestHostPayment();
-            }, timeout);
+            }, timeToPayment);
         }
     }
     async requestHostPayment() {
@@ -462,7 +460,7 @@ class Subspace extends events_1.default {
                 const response = message.data;
                 const contract = this.wallet.getPublicContract();
                 if (!response.valid) {
-                    reject(new Error(message.data.description));
+                    reject(new Error(response.reason));
                 }
                 // validate PoR
                 const record = await this.database.getRecord(response.key);

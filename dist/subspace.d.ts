@@ -6,9 +6,9 @@ import Network from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
-import { IGatewayNodeObject } from '@subspace/network/dist/interfaces';
 import { INeighborProof, IPendingFailure } from './interfaces';
-import { IPledge } from '@subspace/wallet/dist/interfaces';
+import { IGatewayNodeObject } from '@subspace/network';
+import { IPledge } from '@subspace/wallet';
 export default class Subspace extends EventEmitter {
     name: string;
     email: string;

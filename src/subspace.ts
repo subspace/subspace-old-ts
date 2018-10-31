@@ -3,15 +3,16 @@ import * as crypto from '@subspace/crypto'
 import Wallet from '@subspace/wallet'
 import Storage from '@subspace/storage'
 import Network from '@subspace/network'
-import {Tracker} from '@subspace/tracker'
+import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
-import {IGenericMessage, IGatewayNodeObject, IConnectionObject } from '@subspace/network/dist/interfaces';
-import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces';
-import { IKey, IContract, IContractData, IPledge } from '@subspace/wallet/dist/interfaces';
-import { IMessage, IHostMessage, IEntryObject, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject } from '@subspace/tracker/dist/interfaces';
-import { message } from 'openpgp';
-import { promises } from 'fs';
+import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
+
+import {IGenericMessage, IGatewayNodeObject, IConnectionObject } from '@subspace/network'
+import { IContractData, IPledge } from '@subspace/wallet'
+
+
+
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -64,7 +65,7 @@ export default class Subspace extends EventEmitter {
 
   private async addRequest(type: string, recordId: string, data: any, hosts: string[]) {
     // generate and send the request
-    const message: IGenericMessage = await this.network.createGenericMessage(`${type}-request`, data)
+    const message = await this.network.createGenericMessage(`${type}-request`, data)
     for (const host of hosts) {
       await this.network.send(host, message)
     }
@@ -97,25 +98,25 @@ export default class Subspace extends EventEmitter {
 
   private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject) {
     const response: IGetResponse = { valid, key, reason, record}
-    const message: IGenericMessage = await this.network.createGenericMessage('get-reply', response)
+    const message = await this.network.createGenericMessage('get-reply', response)
     this.network.send(client, message)
   }
 
   private async sendRevResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IRevResponse = { valid, reason, key}
-    const message: IGenericMessage = await this.network.createGenericMessage('rev-reply', response)
+    const message = await this.network.createGenericMessage('rev-reply', response)
     this.network.send(client, message)
   }
 
   private async sendDelResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IDelResponse = { valid, reason, key}
-    const message: IGenericMessage = await this.network.createGenericMessage('del-reply', response)
+    const message = await this.network.createGenericMessage('del-reply', response)
     this.network.send(client, message)
   }
 
   private async sendContractResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IContractResponse = { valid, reason, key}
-    const message: IGenericMessage = await this.network.createGenericMessage('contract-reply', response)
+    const message = await this.network.createGenericMessage('contract-reply', response)
     this.network.send(client, message)
   }
 
@@ -156,7 +157,7 @@ export default class Subspace extends EventEmitter {
   }
   
   private async init() {
-    if (this.init) return
+    if (this.isInit) return
 
     // determine the node env
     await this.initEnv()
@@ -288,42 +289,40 @@ export default class Subspace extends EventEmitter {
 
   public async deleteProfile() {
     // deletes the existing profile on disk
-    await this.wallet.profile.clear()
+    if (this.wallet.profile.user) {
+      await this.wallet.profile.clear()
+    }
   }
 
   // core network methods
 
   public async join() {  
-    // join the subspace network as a node
+    // join the subspace network as a node, connecting to some gateway nodes
     await this.init()
     const joined = await this.network.join()
-    if (joined) {
-      this.emit('connected')
-    } else {
-      throw new Error('Error joining network')
-    }
+    this.emit('join')
   }
 
   public async leave() {
+    // leave the subspace network, disconnecting from all peers
     await this.network.leave()
-    this.emit('disconnected')
+    this.emit('leave')
   }
 
   public async connect(nodeId: string) {
+    // connect to another node directly as a peer
     const connection = await this.network.connect(nodeId)
     this.emit('connection', connection)
   }
 
   public async disconnect(nodeId: string) {
+    // disconnect from another node as a peer
     await this.network.disconnect(nodeId)
-    this.emit('disconnected')
+    this.emit('disconnection')
   }
 
   public async send(nodeId: string, message: any) {
-    const sent = await this.network.send(nodeId, message)
-    if (!sent) {
-      throw new Error('Error sending message')
-    }
+    await this.network.send(nodeId, message)
   }
 
   // ledger tx methods
@@ -353,6 +352,7 @@ export default class Subspace extends EventEmitter {
   }
 
   public async pledgeSpace(interval: number) {
+
     // creates and submits a pledges as a proof of space to the ledger as a host
 
     if (!this.wallet.profile.proof) {
@@ -386,11 +386,12 @@ export default class Subspace extends EventEmitter {
   private setPaymentTimer() {
     // called on init 
     const pledge = this.wallet.profile.pledge
+    // if I have an active pledge, set a timeout to request payment
     if (pledge.interval) {
-      const timeout = (pledge.createdAt + pledge.interval) - Date.now()
+      const timeToPayment = (pledge.createdAt + pledge.interval) - Date.now()
       setTimeout(() => {
         this.requestHostPayment()
-      }, timeout)
+      }, timeToPayment)
     }
   }
 
@@ -567,7 +568,7 @@ export default class Subspace extends EventEmitter {
         const response: IContractResponse = message.data
         const contract = this.wallet.getPublicContract()
         if (!response.valid) {
-          reject(new Error(message.data.description))
+          reject(new Error(response.reason))
         }
 
         // validate PoR

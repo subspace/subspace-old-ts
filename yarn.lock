@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#ab0da5714a179c7de7746a82d8005d7dc581f11f"
+  resolved "git+ssh://git@github.com/subspace/network.git#d5688921b0e070cfb01cfdfeaa85a2571b67da63"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@types/openpgp" "^4.0.0"
@@ -98,7 +98,7 @@
 
 "@subspace/tracker@github:subspace/tracker":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/tracker.git#c2b6230e482825c76d50975267ce331da00faf7e"
+  resolved "git+ssh://git@github.com/subspace/tracker.git#c8d73629301ea9fc143d153762807a94acd27eb8"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/utils" "github:subspace/utils"
@@ -112,7 +112,7 @@
 
 "@subspace/wallet@github:subspace/wallet":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/wallet.git#032825096206dfc23126f9c41585d1a49d67d632"
+  resolved "git+ssh://git@github.com/subspace/wallet.git#fa43ebee97275439fc1f8b821b41089ee264e2df"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
 
