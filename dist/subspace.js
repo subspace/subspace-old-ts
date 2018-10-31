@@ -15,7 +15,7 @@ const crypto = __importStar(require("@subspace/crypto"));
 const wallet_1 = __importDefault(require("@subspace/wallet"));
 const storage_1 = __importDefault(require("@subspace/storage"));
 const network_1 = __importDefault(require("@subspace/network"));
-const tracker_1 = __importDefault(require("@subspace/tracker"));
+const tracker_1 = require("@subspace/tracker");
 const ledger_1 = require("@subspace/ledger");
 const database_1 = require("@subspace/database");
 const DEFAULT_PROFILE_NAME = 'name';
@@ -45,8 +45,12 @@ class Subspace extends events_1.default {
         this.delegated = delegated;
         this.isInit = false;
         this.env = '';
-        this.storage_adapter = '';
+        this.storageAdapter = '';
         this.pendingRequests = new Map();
+        this.messages = new Map();
+        this.neighbors = new Set();
+        this.neighborProofs = new Map();
+        this.evictedShards = new Map();
     }
     async addRequest(type, recordId, data, hosts) {
         // generate and send the request
@@ -54,14 +58,15 @@ class Subspace extends events_1.default {
         for (const host of hosts) {
             await this.network.send(host, message);
         }
+        const hostSet = new Set([...hosts]);
         // add the requests and copy to pending
-        this.pendingRequests.set(crypto.getHash(type + recordId), hosts);
-        this.pendingRequests.set(crypto.getHash(recordId + type), hosts);
+        this.pendingRequests.set(crypto.getHash(type + recordId), hostSet);
+        this.pendingRequests.set(crypto.getHash(recordId + type), hostSet);
     }
     async removeRequest(type, recordId, host) {
         const key = crypto.getHash(type + recordId);
         const request = this.pendingRequests.get(key);
-        this.pendingRequests.delete(host);
+        request.delete(host);
         this.pendingRequests.set(key, request);
     }
     resolveRequest(type, recordId) {
@@ -71,7 +76,6 @@ class Subspace extends events_1.default {
         this.pendingRequests.delete(copyKey);
         return hosts;
     }
-    // this.requests.respond('put', false, testRequest.reason, record.key)
     async sendPutResponse(client, valid, reason, key) {
         const response = { valid, reason, key };
         const message = await this.network.createGenericMessage('put-reply', response);
@@ -98,7 +102,23 @@ class Subspace extends events_1.default {
         this.network.send(client, message);
     }
     getRequestSize(type, recordId) {
-        return this.pendingRequests.get(crypto.getHash(type + recordId)).length;
+        return this.pendingRequests.get(crypto.getHash(type + recordId)).size;
+    }
+    startMessagePruner() {
+        // expire all messages older than 10 minutes, every 10 minutes
+        setInterval(() => {
+            const cutoffTime = Date.now() - 600000;
+            this.messages.forEach((timestamp, message) => {
+                if (timestamp <= cutoffTime) {
+                    this.messages.delete(message);
+                }
+            });
+        }, 600000);
+    }
+    isGateway() {
+        const profile = this.wallet.getProfile();
+        const nodeIds = this.gateway_nodes.map(node => node.nodeId);
+        return nodeIds.includes(profile.id);
     }
     async initEnv() {
         if (typeof window !== 'undefined') {
@@ -122,12 +142,12 @@ class Subspace extends events_1.default {
         await this.initEnv();
         // determine the storage adapter
         if (this.env === 'browser') {
-            this.storage_adapter = 'browser';
+            this.storageAdapter = 'browser';
         }
         else {
-            this.storage_adapter = 'node';
+            this.storageAdapter = 'node';
         }
-        this.storage = new storage_1.default(this.storage_adapter);
+        this.storage = new storage_1.default(this.storageAdapter);
         // init the profile
         // if no profile, will create a new default profile
         // if args, will create a new profile from args
@@ -135,8 +155,6 @@ class Subspace extends events_1.default {
         this.wallet = new wallet_1.default(this.storage);
         await this.wallet.init();
         this.setPaymentTimer();
-        // tracker 
-        this.tracker = new tracker_1.default(this.storage);
         // ledger 
         this.ledger = new ledger_1.Ledger(this.storage, this.wallet);
         this.ledger.on('block-solution', async (block) => {
@@ -144,57 +162,75 @@ class Subspace extends events_1.default {
             this.network.gossip(blockMessage);
             this.emit('block', block);
         });
+        // tracker 
+        this.tracker = new tracker_1.Tracker(this.storage, this.wallet, this.ledger);
+        this.on('tx', (txRecord) => {
+            // on valid pledge tx, add new inactive host entry into the tracker
+            if (txRecord.value.content.type === 'pledge') {
+                this.tracker.addEntry(txRecord);
+            }
+            if (txRecord.value.content.type === 'contract') {
+                // compute shards
+                // for each shard
+                // see if I am closest host
+                // if closest, initialize the shard
+            }
+        });
         // database
         this.database = new database_1.DataBase(this.storage, this.wallet);
         // network
         this.network = new network_1.default(this.bootstrap, this.gateway_nodes, this.gateway_count, this.delegated, this.wallet, this.tracker, this.env);
+        // prune messages every 10 minutes
+        this.startMessagePruner();
         this.network.on('join', () => this.emit('join'));
         this.network.on('leave', () => this.emit('leave'));
         this.network.on('connection', connection => this.emit('connection', connection.node_id));
-        this.network.on('disconnection', connection => this.emit('disconnection', connection.node_id));
+        this.network.on('disconnection', connection => {
+            // check if this is a neighbor
+            // also check if the neighbor has fully joined the tracker before starting
+            // if so, call startHostFailure()
+            this.emit('disconnection', connection.node_id);
+        });
         this.network.on('message', async (message) => {
             let valid = false;
             // handle validation for gossiped messages here
             // specific rpc methods are emitted and handled in corresponding parent method
-            switch (message.type) {
-                case ('pending-join'):
-                    break;
-                case ('full-join'):
-                    break;
-                case ('leave'):
-                    break;
-                case ('failure'):
-                    break;
-                case ('tx'):
-                    // first ensure we have a valid SSDB record wrapping the tx
-                    const txRecord = database_1.Record.readUnpacked(message.data.key, message.data.value);
-                    const txRecordTest = await txRecord.isValid();
-                    if (txRecordTest.valid) {
-                        // then validate the tx data
-                        const txTest = await this.ledger.onTx(txRecord);
-                        if (txTest.valid) {
-                            const txMessage = await this.network.createGenericMessage('tx', message.data);
-                            this.network.gossip(txMessage);
-                            this.emit('tx', txRecord);
+            // prevent revalidating and regoissiping the same messages
+            const messagedId = crypto.getHash(JSON.stringify(message.data));
+            if (!this.messages.has(messagedId)) {
+                this.messages.set(messagedId, Date.now());
+                switch (message.type) {
+                    case ('tx'):
+                        // first ensure we have a valid SSDB record wrapping the tx
+                        const txRecord = database_1.Record.readUnpacked(message.data.key, message.data.value);
+                        const txRecordTest = await txRecord.isValid();
+                        if (txRecordTest.valid) {
+                            // then validate the tx data
+                            const txTest = await this.ledger.onTx(txRecord);
+                            if (txTest.valid) {
+                                const txMessage = await this.network.createGenericMessage('tx', message.data);
+                                this.network.gossip(txMessage);
+                                this.emit('tx', txRecord);
+                            }
                         }
-                    }
-                    break;
-                case ('block'):
-                    // first validate the immutable record on SSDB
-                    const blockRecord = database_1.Record.readUnpacked(message.data.key, message.data.value);
-                    const blockRecordTest = await blockRecord.isValid();
-                    if (blockRecordTest.valid) {
-                        // extract the block data and validate that in ledger
-                        const blockTest = await this.ledger.onBlock(blockRecord);
-                        if (blockTest.valid) {
-                            const blockMessage = await this.network.createGenericMessage('block', message.data);
-                            this.network.gossip(blockMessage);
-                            this.emit('block', blockRecord);
+                        break;
+                    case ('block'):
+                        // first validate the immutable record on SSDB
+                        const blockRecord = database_1.Record.readUnpacked(message.data.key, message.data.value);
+                        const blockRecordTest = await blockRecord.isValid();
+                        if (blockRecordTest.valid) {
+                            // extract the block data and validate that in ledger
+                            const blockTest = await this.ledger.onBlock(blockRecord);
+                            if (blockTest.valid) {
+                                const blockMessage = await this.network.createGenericMessage('block', message.data);
+                                this.network.gossip(blockMessage);
+                                this.emit('block', blockRecord);
+                            }
                         }
-                    }
-                    break;
-                default:
-                    this.emit(message.type, message.data);
+                        break;
+                    default:
+                        this.emit(message.type, message.data);
+                }
             }
         });
         this.isInit = true;
@@ -330,13 +366,14 @@ class Subspace extends events_1.default {
         // sign the contract public key with its private key to prove ownership without revealing contract id 
         const privateKeyObject = await crypto.getPrivateKeyObject(privateKey, passphrase);
         const contractSig = await crypto.sign(publicKey, privateKeyObject);
+        const contractId = crypto.getHash(publicKey);
         // tx will be saved on apply tx 
         // contract record does not need to be saved directly
         // state is already being saved in the wallet contract object 
         // each host will hold the state
         // when we send an update it should only inlcude the new state
         // create the immutable contract tx and tx record, with included contract signature
-        const txRecord = await this.ledger.createMutableContractTx(spaceReserved, replicationFactor, ttl, contractSig);
+        const txRecord = await this.ledger.createMutableContractTx(spaceReserved, replicationFactor, ttl, contractSig, contractId);
         // update the contract record with correct state 
         const contractState = {
             fundingTx: txRecord.key,
@@ -870,36 +907,271 @@ class Subspace extends events_1.default {
         this.ledger.isFarming = false;
     }
     // host methods
-    joinHosts() {
-        // requirements
-        // created a pledge
-        // submitted the pledge tx to the chain 
-        // 
-        // join the network as a valid host with a pledge
+    async connectToNeighbor(nodeId) {
         return new Promise(async (resolve, reject) => {
-            try {
-                // need a valid pledge
-                // gossip join to the network
-                // determine my valid neighbors
-                // connect to each neighbor
-                // determine my valid neighbors from the tracker
-                // open a direct connection with each neighbor (socket may vary)
-                // monitor connections and vote on failures
-                // node must gossip plegde to all nodes (as pending) to alert indirect neighbors
-                // nodde must initiate connection with first m/2 neighbors
-                // node must wait for connection from second m/2 neighbors as pending join spreads
-                // once 2/3 of neighbors agree node has joined, the full proof is gossiped
-                // corresponding code for on('join-request')
+            // send a connection request to a valid neighbor
+            const pledgeTxId = this.wallet.profile.pledge.pledgeTx;
+            const request = { pledgeTxId };
+            const requestMessage = await this.network.createGenericMessage('neighbor-request', request);
+            await this.network.send(nodeId, requestMessage);
+            this.on('neighbor-request', async (message) => {
+                const response = {
+                    valid: false,
+                    reason: null,
+                    proof: null
+                };
+                const requestTest = await this.tracker.isValidNeighborRequest(message);
+                // is this a valid neighbor request message?
+                if (!requestTest) {
+                    response.reason = requestTest.reason;
+                    const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
+                    await this.network.send(message.sender, responseMessage);
+                }
+                // am I a valid neighbor for this host?
+                const profile = this.wallet.getProfile();
+                const activeHosts = this.tracker.getActiveHosts();
+                const hostNeighbors = this.tracker.getNeighbors(message.sender, activeHosts);
+                if (!hostNeighbors.includes(profile.id)) {
+                    response.reason = 'invalid neighbor request, not a valid neighbor';
+                    const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
+                    await this.network.send(message.sender, responseMessage);
+                }
+                // add to neighbors 
+                this.neighbors.add(message.sender);
+                // send join reply with my signature proof
+                response.proof = {
+                    host: message.sender,
+                    neighbor: profile.publicKey,
+                    timestamp: Date.now(),
+                    signature: null
+                };
+                response.valid = true;
+                response.proof.signature = await crypto.sign(response.proof, profile.privateKey);
+                const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
+                await this.network.send(message.sender, responseMessage);
+            });
+            this.on('neighbor-reply', (message) => {
+                // check if request accpeted
+                const response = message.data;
+                if (!response.valid) {
+                    reject(new Error(response.reason));
+                }
+                // update my neighbors
+                this.neighbors.add(message.sender);
+                this.neighborProofs.set(message.sender, response.proof);
                 resolve();
+            });
+        });
+    }
+    async getShard(nodeId, shardId, contractRecordId) {
+        return new Promise(async (resolve, reject) => {
+            // get shard from another host after joining the host network
+            // corner case, what if two hosts try to take over the same shard at the same time?
+            const request = { shardId, contractRecordId };
+            await this.addRequest('shard', shardId, request, [nodeId]);
+            this.on('shard-request', async (message) => {
+                const request = message.data;
+                const profile = this.wallet.getProfile();
+                const response = {
+                    valid: false,
+                    reason: null,
+                    contractId: request.contractRecordId,
+                    shardId: request.shardId,
+                    records: []
+                };
+                // validate the contract and shard match 
+                const contract = this.ledger.clearedContracts.get(request.contractRecordId);
+                const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved);
+                if (!shards.includes(request.shardId)) {
+                    const responseMessage = await this.network.createGenericMessage('shard-reply', response);
+                    this.network.send(message.sender, responseMessage);
+                }
+                const entry = this.tracker.getEntry(message.sender);
+                if (!entry || entry.status) {
+                    const responseMessage = await this.network.createGenericMessage('shard-reply', response);
+                    this.network.send(message.sender, responseMessage);
+                }
+                // compute hosts for shard with the requesting host temporarilty set to active
+                entry.status = true;
+                this.tracker.lht.set(message.sender, entry);
+                const hosts = this.database.computeHostsforShards([request.shardId], contract.replicationFactor)[0].hosts;
+                entry.status = false;
+                this.tracker.lht.set(message.sender, entry);
+                // see if they are both closer than me and if I have been evicted from shard
+                if (!hosts.includes(message.sender) || hosts.includes(profile.id)) {
+                    const responseMessage = await this.network.createGenericMessage('shard-reply', response);
+                    this.network.send(message.sender, responseMessage);
+                }
+                // valid request 
+                response.valid = true;
+                // get all records for shard
+                const shard = this.database.getShard(request.shardId);
+                for (const recordId of shard.records) {
+                    const recordValue = JSON.parse(await this.storage.get(recordId));
+                    const record = database_1.Record.readPacked(recordId, recordValue);
+                    response.records.push(record);
+                }
+                // once the new host is active on the tracker, this node will drop the shard and records
+                let evictedShard = null;
+                if (this.evictedShards.has(message.sender)) {
+                    evictedShard = this.evictedShards.get(message.sender);
+                }
+                else {
+                    evictedShard = new Set();
+                }
+                evictedShard.add(shardId);
+                this.evictedShards.set(message.sender, evictedShard);
+                // need to create an unsigned message, should really be sent as a stream
+                const responseMessage = await this.network.createGenericMessage('shard-reply', response);
+                this.network.send(message.sender, responseMessage);
+            });
+            this.on('shard-reply', async (message) => {
+                const response = message.data;
+                // throw error on invalid request
+                if (!response.valid) {
+                    reject(new Error(response.reason));
+                }
+                // valid response
+                this.resolveRequest('shard', response.shardId);
+                // later fetch the merkle hash of the shard from contract state to validate return data
+                // or get the record index from contract state  and validate each record 
+                // create the shard 
+                await this.database.createShard(response.shardId, response.contractId);
+                for (const record of response.records) {
+                    // save the record to disk and update shard
+                    await this.storage.put(record.key, JSON.stringify(record.value));
+                    await this.database.putRecordInShard(request.shardId, record);
+                }
+                resolve();
+            });
+        });
+    }
+    async joinHosts() {
+        // after seeding and pledging space, join the host network 
+        // should add a delay or ensure the tx has been anchored in the ledger 
+        // assumes the host already has an entry into the tracker
+        const pledge = this.wallet.profile.pledge;
+        if (!pledge.interval) {
+            throw new Error('Cannot join host network without first submitting a pledge tx');
+        }
+        const profile = this.wallet.getProfile();
+        const promises = [];
+        // connect to all valid neighbors 
+        const activeHosts = this.tracker.getActiveHosts();
+        this.neighbors = new Set([...this.tracker.getNeighbors(profile.id, activeHosts)]);
+        for (const nodeId of this.neighbors) {
+            promises.push(this.connectToNeighbor(nodeId));
+        }
+        // get all of my assigned shards, an expensive, (hoepfully) one-time operation 
+        for (const [recordId, contract] of this.ledger.clearedContracts) {
+            const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
+            for (const shardId of shards) {
+                const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts;
+                if (hosts.includes(profile.id)) {
+                    const furthestHost = hosts[hosts.length - 1];
+                    promises.push(this.getShard(furthestHost, shardId, recordId));
+                }
             }
-            catch (error) {
-                this.emit('error', error);
-                reject(error);
+        }
+        await Promise.all(promises);
+        // comile signatures, create and gossip the join messsage 
+        const publicIP = this.network.my_ip;
+        const isGateway = this.isGateway();
+        const signatures = [...this.neighborProofs.values()];
+        const joinMessage = await this.tracker.createJoinMessage(publicIP, isGateway, signatures);
+        await this.network.gossip(joinMessage);
+        this.tracker.updateEntry(joinMessage.data);
+        this.emit('joined-hosts');
+        // on receipt of join message by each host
+        this.on('host-join', async (message) => {
+            const join = message.data;
+            // later add strict validation
+            // if the node is in the LHT, in an incative state, compute its neighbors
+            const entry = this.tracker.getEntry(join.nodeId);
+            if (entry && !entry.status) {
+                const activeHosts = this.tracker.getActiveHosts();
+                const neighbors = new Set([...this.tracker.getNeighbors(join.nodeId, activeHosts)]);
+                let validCount = 0;
+                // for each valid neighbor, validate the signature 
+                for (const proof of join.signatures) {
+                    if (neighbors.has(crypto.getHash(proof.neighbor)) && proof.host === join.nodeId) {
+                        const unsignedProof = Object.assign({}, proof);
+                        unsignedProof.signature = null;
+                        if (await crypto.isValidSignature(unsignedProof, proof.signature, proof.neighbor)) {
+                            validCount++;
+                        }
+                    }
+                }
+                // if 2/3 of neighbors have signed, valid join
+                if (validCount >= (neighbors.size * (2 / 3))) {
+                    this.tracker.updateEntry(join);
+                    await this.network.gossip(message);
+                    // drop any shards this host replicated from me
+                    if (this.evictedShards.has(join.nodeId)) {
+                        const shards = this.evictedShards.get(join.nodeId);
+                        this.evictedShards.delete(join.nodeId);
+                        for (const shard of shards) {
+                            this.database.delShard(shard);
+                        }
+                    }
+                }
             }
         });
     }
-    leaveHosts() {
-        // gracefully leave the network as a valid host
+    async leaveHosts() {
+        // leave the host network gracefully, disconnecting from all valid neighbors
+        const message = await this.tracker.createFailureMessage();
+        this.network.broadcast(this.network.neighbors, message);
+        // disconnect from each host
+        this.network.connections.forEach((connection, index) => {
+            if (this.network.neighbors.includes(connection.nodeId))
+                connection.socket.close();
+            this.network.connections.splice(index, 1);
+            this.network.removeNodeFromGraph(connection.nodeId);
+            this.emit('disconnection', connection);
+            return;
+        });
+        // reset my neighbors 
+        this.network.neighbors = [];
+        this.network.on('host-leave', (message) => {
+            // validate the message has proper signature
+            // gossip the message back out to the network
+            // deactivate the host in the lht 
+            // see if I am responisble for any of their shards 
+            // if I have the shard, send to new furthest host
+            // if I am the new furthest host, get the shard 
+        });
+    }
+    async onHostFailure() {
+        // listen for and validate disconnection of my host neighbors
+        this.on('disconnection', () => {
+            // if neighbor
+            // wait for a random timeout within a constant range (say 30 seconds)
+            // attempt to ping 
+            // if no reply 
+            // compute the failed hosts neighbors 
+            // create a signed failure message
+            // send to each neighbor 
+            // if failed they will reply with a signature
+            // once you have 2/3 signatures turn into a failure proof
+            // gossip the failure proof to the host network 
+        });
+        this.on('failure-request', () => {
+        });
+        this.on('failure-reply', () => {
+        });
+        // listen for and validate gossiped failures of other hosts neighbors
+        this.on('host-failure', (message) => {
+            // check the host status on the tracker
+            // if active
+            // compute the neighbors
+            // for each failure proof 
+            // validate it is from a neighbor
+            // validate the signature 
+            // if you have signatures from 2/3 of the hosts
+            // deactivate the node in the lht
+            // gossip the message back out to hosts 
+        });
     }
 }
 exports.default = Subspace;

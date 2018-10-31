@@ -3,10 +3,11 @@ import EventEmitter from 'events';
 import Wallet from '@subspace/wallet';
 import Storage from '@subspace/storage';
 import Network from '@subspace/network';
-import Tracker from '@subspace/tracker';
+import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
 import { IGatewayNodeObject } from '@subspace/network/dist/interfaces';
+import { INeighborProof } from './interfaces';
 import { IPledge } from '@subspace/wallet/dist/interfaces';
 export default class Subspace extends EventEmitter {
     name: string;
@@ -20,14 +21,18 @@ export default class Subspace extends EventEmitter {
     delegated: boolean;
     isInit: boolean;
     env: string;
-    storage_adapter: string;
+    storageAdapter: string;
     storage: Storage;
     network: Network;
     wallet: Wallet;
     tracker: Tracker;
     database: DataBase;
     ledger: Ledger;
-    pendingRequests: Map<string, string[]>;
+    pendingRequests: Map<string, Set<string>>;
+    messages: Map<string, number>;
+    neighbors: Set<string>;
+    neighborProofs: Map<string, INeighborProof>;
+    evictedShards: Map<string, Set<string>>;
     constructor(name?: string, email?: string, passphrase?: string, pledge?: IPledge, interval?: number, bootstrap?: boolean, gateway_nodes?: IGatewayNodeObject[], gateway_count?: number, delegated?: boolean);
     private addRequest;
     private removeRequest;
@@ -38,6 +43,8 @@ export default class Subspace extends EventEmitter {
     private sendDelResponse;
     private sendContractResponse;
     private getRequestSize;
+    private startMessagePruner;
+    private isGateway;
     private initEnv;
     private init;
     createProfile(options: any): Promise<void>;
@@ -71,6 +78,9 @@ export default class Subspace extends EventEmitter {
     private getLedger;
     startFarmer(): Promise<void>;
     stopFarmer(): void;
-    joinHosts(): Promise<{}>;
-    leaveHosts(): void;
+    connectToNeighbor(nodeId: string): Promise<void>;
+    getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
+    joinHosts(): Promise<void>;
+    leaveHosts(): Promise<void>;
+    onHostFailure(): Promise<void>;
 }

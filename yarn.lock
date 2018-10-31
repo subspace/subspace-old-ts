@@ -41,7 +41,7 @@
 
 "@subspace/database@github:subspace/database":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/database.git#c0eea7a60386b97201edf58d3cc4a7fcb7a8414d"
+  resolved "git+ssh://git@github.com/subspace/database.git#e1301bedfe60526547de5e80afa064917accf9f5"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
@@ -59,7 +59,7 @@
 
 "@subspace/ledger@github:subspace/ledger":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/ledger.git#0895d4b6dd2ea5a18ac294121ffe1edc7a2815c9"
+  resolved "git+ssh://git@github.com/subspace/ledger.git#b59d25ac138b40f5386dd254c554a0b842687ab7"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/database" "github:subspace/database"
@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#98db99396752ac3e137a0b7fef3d7473182db19b"
+  resolved "git+ssh://git@github.com/subspace/network.git#6e5aebac5765e0fbbb33f4fcadf4e22bf9014dc0"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@types/openpgp" "^4.0.0"
@@ -98,7 +98,7 @@
 
 "@subspace/tracker@github:subspace/tracker":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/tracker.git#4834a936036969fe65ed59c977401ecaafa5c5a7"
+  resolved "git+ssh://git@github.com/subspace/tracker.git#88feff581fc6f3948866247345bd76f13b2cb3f1"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/utils" "github:subspace/utils"
@@ -121,8 +121,8 @@
   resolved "http://registry.npmjs.org/@types/events/-/events-1.2.0.tgz#81a6731ce4df43619e5c8c945383b3e62a89ea86"
 
 "@types/jest@^23.3.1":
-  version "23.3.8"
-  resolved "https://registry.yarnpkg.com/@types/jest/-/jest-23.3.8.tgz#56b07c0c3d7c8a6c47abb4f785cab648c6eafd01"
+  version "23.3.9"
+  resolved "https://registry.yarnpkg.com/@types/jest/-/jest-23.3.9.tgz#c16b55186ee73ae65e001fbee69d392c51337ad1"
 
 "@types/long@^4.0.0":
   version "4.0.0"
@@ -3669,8 +3669,8 @@ sprintf-js@~1.0.2:
   resolved "https://registry.yarnpkg.com/sprintf-js/-/sprintf-js-1.0.3.tgz#04e6926f662895354f3dd015203633b857297e2c"
 
 sshpk@^1.7.0:
-  version "1.15.1"
-  resolved "https://registry.yarnpkg.com/sshpk/-/sshpk-1.15.1.tgz#b79a089a732e346c6e0714830f36285cd38191a2"
+  version "1.15.2"
+  resolved "https://registry.yarnpkg.com/sshpk/-/sshpk-1.15.2.tgz#c946d6bd9b1a39d0e8635763f5242d6ed6dcb629"
   dependencies:
     asn1 "~0.2.3"
     assert-plus "^1.0.0"

@@ -59,3 +59,28 @@ export interface IContractResponse {
     reason: string;
     key: string;
 }
+export interface INeighborRequest {
+    pledgeTxId: string;
+}
+export interface INeighborResponse {
+    valid: boolean;
+    reason: string;
+    proof: INeighborProof;
+}
+export interface INeighborProof {
+    host: string;
+    neighbor: string;
+    timestamp: number;
+    signature: string;
+}
+export interface IShardRequest {
+    shardId: string;
+    contractRecordId: string;
+}
+export interface IShardResponse {
+    valid: boolean;
+    reason: string;
+    shardId: string;
+    contractId: string;
+    records: Record[];
+}
