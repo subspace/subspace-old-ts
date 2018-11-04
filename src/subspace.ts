@@ -1,18 +1,13 @@
 import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
-import Wallet from '@subspace/wallet'
+import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network from '@subspace/network'
+import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject} from '@subspace/network'
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
-
-import {IGenericMessage, IGatewayNodeObject, IConnectionObject } from '@subspace/network'
-import { IContractData, IPledge } from '@subspace/wallet'
-
-
-
+import { resolve } from 'url';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -30,16 +25,18 @@ const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
 
 export default class Subspace extends EventEmitter {
 
-
-  public isInit = false
-  public env = ''
-  public storageAdapter = ''
   public storage: Storage
   public network: Network
   public wallet: Wallet
   public tracker: Tracker
   public database: DataBase
   public ledger: Ledger
+  
+  public isInit = false
+  public isHosting = false
+  public env = ''
+  public storageAdapter = ''
+  
   public pendingRequests: Map<string, Set<string>> = new Map()
   public messages: Map<string, number> = new Map()
   public neighbors: Set <string> = new Set()
@@ -47,18 +44,17 @@ export default class Subspace extends EventEmitter {
   public failedNeighbors: Map<string, boolean> = new Map()
   public pendingFailures: Map<string, IPendingFailure> = new Map()
   public evictedShards: Map <string, Set<string>> = new Map()
-  public isHosting = false
-
+  
   constructor(
+    public bootstrap = false, 
+    public gatewayNodes = DEFAULT_GATEWAY_NODES,
+    public gatewayCount = DEFAULT_GATEWAY_COUNT, 
+    public delegated = false,
     public name = DEFAULT_PROFILE_NAME,
     public email = DEFAULT_PROFILE_EMAIL,
     public passphrase = DEFAULT_CONTRACT_PASSPHRASE,
-    public pledge: IPledge = null,
-    public interval: number = null,
-    public bootstrap = false, 
-    public gateway_nodes = DEFAULT_GATEWAY_NODES,
-    public gateway_count = DEFAULT_GATEWAY_COUNT, 
-    public delegated = false
+    public spacePledge: number = null,
+    public interval: number = null
   ) {
     super()
   }
@@ -138,11 +134,11 @@ export default class Subspace extends EventEmitter {
 
   private isGateway() {
     const profile = this.wallet.getProfile()
-    const nodeIds = this.gateway_nodes.map(node => node.nodeId)
+    const nodeIds = this.gatewayNodes.map(node => node.nodeId)
     return nodeIds.includes(profile.id)
   }
   
-  private async initEnv() {
+  public async initEnv() {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
       this.env = 'browser' 
@@ -156,17 +152,21 @@ export default class Subspace extends EventEmitter {
     }
   }
   
-  private async init() {
+  public async init(env: string): Promise<void> {
+
+
     if (this.isInit) return
+    this.env = env
 
     // determine the node env
-    await this.initEnv()
+    // await this.initEnv()
+    
 
     // determine the storage adapter
     if (this.env === 'browser') {
       this.storageAdapter = 'browser'
     } else {
-      this.storageAdapter = 'node'
+      this.storageAdapter = 'rocks'
     }
 
     this.storage = new Storage(this.storageAdapter)
@@ -175,9 +175,15 @@ export default class Subspace extends EventEmitter {
       // if no profile, will create a new default profile
       // if args, will create a new profile from args
       // if existing profile, will load from disk
+    
 
     this.wallet = new Wallet(this.storage)
-    await this.wallet.init()
+    const walletOptions = {
+      name: DEFAULT_PROFILE_NAME,
+      email: DEFAULT_PROFILE_EMAIL,
+      passphrase: DEFAULT_PROFILE_PASSPHRASE
+    }
+    await this.wallet.init(walletOptions)
     this.setPaymentTimer()
 
     // ledger 
@@ -207,13 +213,13 @@ export default class Subspace extends EventEmitter {
     })
 
     // database
-    this.database = new DataBase(this.storage, this.wallet)
+    this.database = new DataBase(this.wallet, this.storage)
     
     // network
     this.network = new Network(
       this.bootstrap, 
-      this.gateway_nodes, 
-      this.gateway_count, 
+      this.gatewayNodes, 
+      this.gatewayCount, 
       this.delegated, 
       this.wallet,
       this.tracker,
@@ -282,8 +288,15 @@ export default class Subspace extends EventEmitter {
     this.emit('ready')
   }
 
-  public async createProfile(options: any) {
+  public async createProfile(options?: IProfileOptions) {
     // create a new subspace identity 
+    if(!options) {
+      options = {
+        name: DEFAULT_PROFILE_NAME,
+        email: DEFAULT_PROFILE_EMAIL,
+        passphrase: DEFAULT_PROFILE_PASSPHRASE
+      }
+    }
     await this.wallet.createProfile(options)
   }
 
@@ -298,9 +311,10 @@ export default class Subspace extends EventEmitter {
 
   public async join() {  
     // join the subspace network as a node, connecting to some gateway nodes
-    await this.init()
+    // await this.init()
     const joined = await this.network.join()
     this.emit('join')
+    
   }
 
   public async leave() {
@@ -327,7 +341,7 @@ export default class Subspace extends EventEmitter {
 
   // ledger tx methods
 
-  public async seedPlot(size: number) {
+  public async seedPlot(size: number = DEFAULT_HOST_PLEDGE) {
     // seed a plot on disk by generating a proof of space
     const profile = this.wallet.getProfile()
     const proof =  crypto.createProofOfSpace(profile.publicKey, size)
@@ -360,14 +374,14 @@ export default class Subspace extends EventEmitter {
     }
 
     const profile = this.wallet.getProfile()
-    const pledge = this.wallet.profile.proof.size
+    const proof = this.wallet.profile.proof
 
-    const txRecord = await this.ledger.createPledgeTx(profile.publicKey, pledge, interval)
+    const txRecord = await this.ledger.createPledgeTx(profile.publicKey, proof.id, proof.size, interval)
     const txMessage = await this.network.createGenericMessage('tx', txRecord.getRecord())
 
     this.wallet.profile.pledge = {
       proof: this.wallet.profile.proof.id,
-      size: pledge,
+      size: proof.size,
       interval: interval,
       createdAt: Date.now(),
       pledgeTx: txRecord.key
@@ -387,7 +401,7 @@ export default class Subspace extends EventEmitter {
     // called on init 
     const pledge = this.wallet.profile.pledge
     // if I have an active pledge, set a timeout to request payment
-    if (pledge.interval) {
+    if (pledge) {
       const timeToPayment = (pledge.createdAt + pledge.interval) - Date.now()
       setTimeout(() => {
         this.requestHostPayment()
@@ -549,7 +563,7 @@ export default class Subspace extends EventEmitter {
         }
 
         // validate the contract mutable record
-        const contract = this.ledger.pendingContracts.get(crypto.getHash(contractState.key))
+        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(contractState.key))}
         const testRequest = await this.database.isValidPutRequest(contractState, contract, request)
         if (!testRequest.valid) {
           this.sendContractResponse(message.sender, false, testRequest.reason, contractState.key )
@@ -623,7 +637,7 @@ export default class Subspace extends EventEmitter {
         // validate the contract request
         const request: IPutRequest = message.data 
         const record = this.database.loadPackedRecord(request.record)
-        const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))
+        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
         const testRequest = await this.database.isValidPutRequest(record, contract, request)
         if (!testRequest.valid)  {
           this.sendPutResponse(message.sender, false, testRequest.reason, record.key)
@@ -774,7 +788,7 @@ export default class Subspace extends EventEmitter {
         const request: IRevRequest = message.data 
         const newRecord = this.database.loadPackedRecord(request.record)
         const oldRecord = await this.database.getRecord(newRecord.key)
-        const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))
+        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
         const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request)
 
         if (!testRequest.valid)  {
@@ -857,7 +871,7 @@ export default class Subspace extends EventEmitter {
         // unpack key and validate request
         const request: IDelRequest = message.data
         const record = await this.database.getRecord(request.recordId)
-        const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))
+        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
         
         const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request)
         if (!testRequest.valid)  {
@@ -1057,7 +1071,7 @@ export default class Subspace extends EventEmitter {
         return blockId === myLastBlockId
       }
       const myLastBlockIndex = chain.findIndex(findBlockId)
-      const previousBlockValue = this.ledger.clearedBlocks.get(myLastBlockId)
+      const previousBlockValue = {...this.ledger.clearedBlocks.get(myLastBlockId)}
       previousBlockRecord = Record.readUnpacked(myLastBlockId, previousBlockValue)
       let blockId: string = null
       for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
@@ -1069,15 +1083,21 @@ export default class Subspace extends EventEmitter {
 
   // farmer methods
 
-  public async startFarmer() {
+  public async startFarmer(blockTime?: number) {
+
+    if (blockTime) {
+      this.ledger.setBlockTime(blockTime)
+    }
+    
     if (this.bootstrap) { 
+      this.ledger.hasLedger = true
+      this.ledger.isFarming = true
       await this.ledger.bootstrap()
     } else {
       await this.getLedger()
-    }
-
-    this.ledger.hasLedger = true
-    this.ledger.isFarming = true
+      this.ledger.hasLedger = true
+      this.ledger.isFarming = true
+    } 
   }
 
   public stopFarmer() {
@@ -1145,7 +1165,7 @@ export default class Subspace extends EventEmitter {
 
         // update my neighbors
         this.neighbors.add(message.sender)
-        this.neighborProofs.set(message.sender, response.proof)
+        this.neighborProofs.set(message.sender, {...response.proof})
         resolve()
       })      
     })
@@ -1171,7 +1191,7 @@ export default class Subspace extends EventEmitter {
         }
 
         // validate the contract and shard match 
-        const contract = this.ledger.clearedContracts.get(request.contractRecordId)
+        const contract = {...this.ledger.clearedContracts.get(request.contractRecordId)}
         const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved)
         if (!shards.includes(request.shardId)) {
           const responseMessage = await this.network.createGenericMessage('shard-reply', response)
@@ -1271,7 +1291,8 @@ export default class Subspace extends EventEmitter {
     }
 
     // get all of my assigned shards, an expensive, (hoepfully) one-time operation 
-    for (const [recordId, contract] of this.ledger.clearedContracts) {
+    for (const [recordId, original] of this.ledger.clearedContracts) {
+      const contract = {...original}
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
       for (const shardId of shards) {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts
@@ -1339,7 +1360,8 @@ export default class Subspace extends EventEmitter {
   private async replicateShards(nodeId: string) {
     // derive all shards for this host and see if I am the next closest host
     const profile = this.wallet.getProfile()
-    for (const [recordId, contract] of this.ledger.clearedContracts) {
+    for (const [recordId, original] of this.ledger.clearedContracts) {
+      const contract = {...original}
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
       for (const shardId of shards) {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts
@@ -1417,7 +1439,7 @@ export default class Subspace extends EventEmitter {
                   signatures: [],
                   createdAt: Date.now()
                 }
-                this.pendingFailures.set(nodeId, pendingFailure)
+                this.pendingFailures.set(nodeId, {...pendingFailure})
 
                 // start the failure message 
                 const failureMessage = await this.tracker.createFailureMessage(nodeId)
@@ -1454,9 +1476,9 @@ export default class Subspace extends EventEmitter {
       unsignedResponse.signature = null
       // if valid signature, add to pending failure 
       if (await crypto.isValidSignature(unsignedResponse, response.publicKey, response.signature)) {
-        const pendingFailure = this.pendingFailures.get(response.nodeId)
+        const pendingFailure = {...this.pendingFailures.get(response.nodeId)}
         pendingFailure.signatures.push(response)
-        this.pendingFailures.set(response.nodeId, pendingFailure)
+        this.pendingFailures.set(response.nodeId, {...pendingFailure})
         // once you have 2/3 signatures turn into a failure proof
         if (pendingFailure.signatures.length >= pendingFailure.neighbors.size * (2/3)) {
           // resolve the failure request 

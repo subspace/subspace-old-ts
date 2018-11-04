@@ -28,7 +28,7 @@
 
 "@subspace/crypto@github:subspace/crypto":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/crypto.git#6d0ece9fb14ad5680bdd72f8a6e49bdd3d7f044a"
+  resolved "git+ssh://git@github.com/subspace/crypto.git#7f3f099759be7f7586fd2d14fcab8304ddf66731"
   dependencies:
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
     "@subspace/rendezvous-hash" "github:subspace/rendezvous-hash"
@@ -41,7 +41,7 @@
 
 "@subspace/database@github:subspace/database":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/database.git#e1301bedfe60526547de5e80afa064917accf9f5"
+  resolved "git+ssh://git@github.com/subspace/database.git#3a184c2ee60f44e7c682f2c2bab8c99f02ab231c"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
@@ -59,7 +59,7 @@
 
 "@subspace/ledger@github:subspace/ledger":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/ledger.git#b59d25ac138b40f5386dd254c554a0b842687ab7"
+  resolved "git+ssh://git@github.com/subspace/ledger.git#29d779abedb488097ea77ca54bbcf84c5342addb"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/database" "github:subspace/database"
@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#d5688921b0e070cfb01cfdfeaa85a2571b67da63"
+  resolved "git+ssh://git@github.com/subspace/network.git#c8ca19ce057ed7a20d4684bb052a5ab51b1abfe5"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@types/openpgp" "^4.0.0"
@@ -90,7 +90,7 @@
 
 "@subspace/storage@github:subspace/storage":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/storage.git#b77ae17bd428d06817444ef2a204cbf6d5e55578"
+  resolved "git+ssh://git@github.com/subspace/storage.git#351b7aa03ddded717e59a60cedf7e7a813955948"
   dependencies:
     level-rocksdb "^3.0.1"
     localforage "^1.7.2"
@@ -98,7 +98,7 @@
 
 "@subspace/tracker@github:subspace/tracker":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/tracker.git#c8d73629301ea9fc143d153762807a94acd27eb8"
+  resolved "git+ssh://git@github.com/subspace/tracker.git#24ca09fdea6c357d057c32e9fff7a3d4830bf251"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/utils" "github:subspace/utils"
@@ -112,7 +112,7 @@
 
 "@subspace/wallet@github:subspace/wallet":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/wallet.git#fa43ebee97275439fc1f8b821b41089ee264e2df"
+  resolved "git+ssh://git@github.com/subspace/wallet.git#a5777951fb17fed9c14573fc7a94f929daf3d9f2"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
 
@@ -129,8 +129,8 @@
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.0.tgz#719551d2352d301ac8b81db732acb6bdc28dbdef"
 
 "@types/node@*", "@types/node@^10.9.2":
-  version "10.12.1"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.1.tgz#da61b64a2930a80fa708e57c45cd5441eb379d5b"
+  version "10.12.2"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.2.tgz#d77f9faa027cadad9c912cd47f4f8b07b0fb0864"
 
 "@types/openpgp@^0.0.30":
   version "0.0.30"
@@ -2770,8 +2770,8 @@ needle@^2.2.1:
     sax "^1.2.4"
 
 node-abi@^2.2.0:
-  version "2.4.5"
-  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.4.5.tgz#1fd1fb66641bf3c4dcf55a5490ba10c467ead80c"
+  version "2.5.0"
+  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.5.0.tgz#942e1a78bce764bc0c1672d5821e492b9d032052"
   dependencies:
     semver "^5.4.1"
 
@@ -4001,8 +4001,8 @@ typedarray-to-buffer@^3.1.5:
     is-typedarray "^1.0.0"
 
 typescript@^3.0.1, typescript@^3.0.3:
-  version "3.1.4"
-  resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.1.4.tgz#c74ef7b3c2da65beff548b903022cb8c3cd997ed"
+  version "3.1.6"
+  resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.1.6.tgz#b6543a83cfc8c2befb3f4c8fba6896f5b0c9be68"
 
 uglify-js@^3.1.4:
   version "3.4.9"

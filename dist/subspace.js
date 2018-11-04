@@ -32,18 +32,19 @@ const DEFAULT_CONTRACT_SIZE = 1000000000; // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000; // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2;
 class Subspace extends events_1.default {
-    constructor(name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, pledge = null, interval = null, bootstrap = false, gateway_nodes = DEFAULT_GATEWAY_NODES, gateway_count = DEFAULT_GATEWAY_COUNT, delegated = false) {
+    constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledge = null, interval = null) {
         super();
+        this.bootstrap = bootstrap;
+        this.gatewayNodes = gatewayNodes;
+        this.gatewayCount = gatewayCount;
+        this.delegated = delegated;
         this.name = name;
         this.email = email;
         this.passphrase = passphrase;
-        this.pledge = pledge;
+        this.spacePledge = spacePledge;
         this.interval = interval;
-        this.bootstrap = bootstrap;
-        this.gateway_nodes = gateway_nodes;
-        this.gateway_count = gateway_count;
-        this.delegated = delegated;
         this.isInit = false;
+        this.isHosting = false;
         this.env = '';
         this.storageAdapter = '';
         this.pendingRequests = new Map();
@@ -53,7 +54,6 @@ class Subspace extends events_1.default {
         this.failedNeighbors = new Map();
         this.pendingFailures = new Map();
         this.evictedShards = new Map();
-        this.isHosting = false;
     }
     async addRequest(type, recordId, data, hosts) {
         // generate and send the request
@@ -120,7 +120,7 @@ class Subspace extends events_1.default {
     }
     isGateway() {
         const profile = this.wallet.getProfile();
-        const nodeIds = this.gateway_nodes.map(node => node.nodeId);
+        const nodeIds = this.gatewayNodes.map(node => node.nodeId);
         return nodeIds.includes(profile.id);
     }
     async initEnv() {
@@ -138,17 +138,18 @@ class Subspace extends events_1.default {
             this.env = 'private-host';
         }
     }
-    async init() {
+    async init(env) {
         if (this.isInit)
             return;
+        this.env = env;
         // determine the node env
-        await this.initEnv();
+        // await this.initEnv()
         // determine the storage adapter
         if (this.env === 'browser') {
             this.storageAdapter = 'browser';
         }
         else {
-            this.storageAdapter = 'node';
+            this.storageAdapter = 'rocks';
         }
         this.storage = new storage_1.default(this.storageAdapter);
         // init the profile
@@ -156,7 +157,12 @@ class Subspace extends events_1.default {
         // if args, will create a new profile from args
         // if existing profile, will load from disk
         this.wallet = new wallet_1.default(this.storage);
-        await this.wallet.init();
+        const walletOptions = {
+            name: DEFAULT_PROFILE_NAME,
+            email: DEFAULT_PROFILE_EMAIL,
+            passphrase: DEFAULT_PROFILE_PASSPHRASE
+        };
+        await this.wallet.init(walletOptions);
         this.setPaymentTimer();
         // ledger 
         this.ledger = new ledger_1.Ledger(this.storage, this.wallet);
@@ -180,9 +186,9 @@ class Subspace extends events_1.default {
             }
         });
         // database
-        this.database = new database_1.DataBase(this.storage, this.wallet);
+        this.database = new database_1.DataBase(this.wallet, this.storage);
         // network
-        this.network = new network_1.default(this.bootstrap, this.gateway_nodes, this.gateway_count, this.delegated, this.wallet, this.tracker, this.env);
+        this.network = new network_1.default(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.tracker, this.env);
         // prune messages every 10 minutes
         this.startMessagePruner();
         this.network.on('join', () => this.emit('join'));
@@ -238,6 +244,13 @@ class Subspace extends events_1.default {
     }
     async createProfile(options) {
         // create a new subspace identity 
+        if (!options) {
+            options = {
+                name: DEFAULT_PROFILE_NAME,
+                email: DEFAULT_PROFILE_EMAIL,
+                passphrase: DEFAULT_PROFILE_PASSPHRASE
+            };
+        }
         await this.wallet.createProfile(options);
     }
     async deleteProfile() {
@@ -249,7 +262,7 @@ class Subspace extends events_1.default {
     // core network methods
     async join() {
         // join the subspace network as a node, connecting to some gateway nodes
-        await this.init();
+        // await this.init()
         const joined = await this.network.join();
         this.emit('join');
     }
@@ -272,7 +285,7 @@ class Subspace extends events_1.default {
         await this.network.send(nodeId, message);
     }
     // ledger tx methods
-    async seedPlot(size) {
+    async seedPlot(size = DEFAULT_HOST_PLEDGE) {
         // seed a plot on disk by generating a proof of space
         const profile = this.wallet.getProfile();
         const proof = crypto.createProofOfSpace(profile.publicKey, size);
@@ -297,12 +310,12 @@ class Subspace extends events_1.default {
             throw new Error('You must first seed your plot');
         }
         const profile = this.wallet.getProfile();
-        const pledge = this.wallet.profile.proof.size;
-        const txRecord = await this.ledger.createPledgeTx(profile.publicKey, pledge, interval);
+        const proof = this.wallet.profile.proof;
+        const txRecord = await this.ledger.createPledgeTx(profile.publicKey, proof.id, proof.size, interval);
         const txMessage = await this.network.createGenericMessage('tx', txRecord.getRecord());
         this.wallet.profile.pledge = {
             proof: this.wallet.profile.proof.id,
-            size: pledge,
+            size: proof.size,
             interval: interval,
             createdAt: Date.now(),
             pledgeTx: txRecord.key
@@ -317,7 +330,7 @@ class Subspace extends events_1.default {
         // called on init 
         const pledge = this.wallet.profile.pledge;
         // if I have an active pledge, set a timeout to request payment
-        if (pledge.interval) {
+        if (pledge) {
             const timeToPayment = (pledge.createdAt + pledge.interval) - Date.now();
             setTimeout(() => {
                 this.requestHostPayment();
@@ -444,7 +457,7 @@ class Subspace extends events_1.default {
                     return;
                 }
                 // validate the contract mutable record
-                const contract = this.ledger.pendingContracts.get(crypto.getHash(contractState.key));
+                const contract = Object.assign({}, this.ledger.pendingContracts.get(crypto.getHash(contractState.key)));
                 const testRequest = await this.database.isValidPutRequest(contractState, contract, request);
                 if (!testRequest.valid) {
                     this.sendContractResponse(message.sender, false, testRequest.reason, contractState.key);
@@ -506,7 +519,7 @@ class Subspace extends events_1.default {
                 // validate the contract request
                 const request = message.data;
                 const record = this.database.loadPackedRecord(request.record);
-                const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey));
+                const contract = Object.assign({}, this.ledger.pendingContracts.get(crypto.getHash(request.contractKey)));
                 const testRequest = await this.database.isValidPutRequest(record, contract, request);
                 if (!testRequest.valid) {
                     this.sendPutResponse(message.sender, false, testRequest.reason, record.key);
@@ -635,7 +648,7 @@ class Subspace extends events_1.default {
                 const request = message.data;
                 const newRecord = this.database.loadPackedRecord(request.record);
                 const oldRecord = await this.database.getRecord(newRecord.key);
-                const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey));
+                const contract = Object.assign({}, this.ledger.pendingContracts.get(crypto.getHash(request.contractKey)));
                 const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request);
                 if (!testRequest.valid) {
                     this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key);
@@ -704,7 +717,7 @@ class Subspace extends events_1.default {
                 // unpack key and validate request
                 const request = message.data;
                 const record = await this.database.getRecord(request.recordId);
-                const contract = this.ledger.pendingContracts.get(crypto.getHash(request.contractKey));
+                const contract = Object.assign({}, this.ledger.pendingContracts.get(crypto.getHash(request.contractKey)));
                 const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request);
                 if (!testRequest.valid) {
                     this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId);
@@ -881,7 +894,7 @@ class Subspace extends events_1.default {
                 return blockId === myLastBlockId;
             }
             const myLastBlockIndex = chain.findIndex(findBlockId);
-            const previousBlockValue = this.ledger.clearedBlocks.get(myLastBlockId);
+            const previousBlockValue = Object.assign({}, this.ledger.clearedBlocks.get(myLastBlockId));
             previousBlockRecord = database_1.Record.readUnpacked(myLastBlockId, previousBlockValue);
             let blockId = null;
             for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
@@ -891,15 +904,20 @@ class Subspace extends events_1.default {
         }
     }
     // farmer methods
-    async startFarmer() {
+    async startFarmer(blockTime) {
+        if (blockTime) {
+            this.ledger.setBlockTime(blockTime);
+        }
         if (this.bootstrap) {
+            this.ledger.hasLedger = true;
+            this.ledger.isFarming = true;
             await this.ledger.bootstrap();
         }
         else {
             await this.getLedger();
+            this.ledger.hasLedger = true;
+            this.ledger.isFarming = true;
         }
-        this.ledger.hasLedger = true;
-        this.ledger.isFarming = true;
     }
     stopFarmer() {
         this.ledger.isFarming = false;
@@ -956,7 +974,7 @@ class Subspace extends events_1.default {
                 }
                 // update my neighbors
                 this.neighbors.add(message.sender);
-                this.neighborProofs.set(message.sender, response.proof);
+                this.neighborProofs.set(message.sender, Object.assign({}, response.proof));
                 resolve();
             });
         });
@@ -978,7 +996,7 @@ class Subspace extends events_1.default {
                     records: []
                 };
                 // validate the contract and shard match 
-                const contract = this.ledger.clearedContracts.get(request.contractRecordId);
+                const contract = Object.assign({}, this.ledger.clearedContracts.get(request.contractRecordId));
                 const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved);
                 if (!shards.includes(request.shardId)) {
                     const responseMessage = await this.network.createGenericMessage('shard-reply', response);
@@ -1061,7 +1079,8 @@ class Subspace extends events_1.default {
             promises.push(this.connectToNeighbor(nodeId));
         }
         // get all of my assigned shards, an expensive, (hoepfully) one-time operation 
-        for (const [recordId, contract] of this.ledger.clearedContracts) {
+        for (const [recordId, original] of this.ledger.clearedContracts) {
+            const contract = Object.assign({}, original);
             const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
             for (const shardId of shards) {
                 const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts;
@@ -1120,7 +1139,8 @@ class Subspace extends events_1.default {
     async replicateShards(nodeId) {
         // derive all shards for this host and see if I am the next closest host
         const profile = this.wallet.getProfile();
-        for (const [recordId, contract] of this.ledger.clearedContracts) {
+        for (const [recordId, original] of this.ledger.clearedContracts) {
+            const contract = Object.assign({}, original);
             const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
             for (const shardId of shards) {
                 const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts;
@@ -1189,7 +1209,7 @@ class Subspace extends events_1.default {
                                     signatures: [],
                                     createdAt: Date.now()
                                 };
-                                this.pendingFailures.set(nodeId, pendingFailure);
+                                this.pendingFailures.set(nodeId, Object.assign({}, pendingFailure));
                                 // start the failure message 
                                 const failureMessage = await this.tracker.createFailureMessage(nodeId);
                                 for (const neighbor of neighbors) {
@@ -1223,9 +1243,9 @@ class Subspace extends events_1.default {
             unsignedResponse.signature = null;
             // if valid signature, add to pending failure 
             if (await crypto.isValidSignature(unsignedResponse, response.publicKey, response.signature)) {
-                const pendingFailure = this.pendingFailures.get(response.nodeId);
+                const pendingFailure = Object.assign({}, this.pendingFailures.get(response.nodeId));
                 pendingFailure.signatures.push(response);
-                this.pendingFailures.set(response.nodeId, pendingFailure);
+                this.pendingFailures.set(response.nodeId, Object.assign({}, pendingFailure));
                 // once you have 2/3 signatures turn into a failure proof
                 if (pendingFailure.signatures.length >= pendingFailure.neighbors.size * (2 / 3)) {
                     // resolve the failure request 
