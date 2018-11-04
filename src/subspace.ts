@@ -192,7 +192,11 @@ export default class Subspace extends EventEmitter {
     this.ledger.on('block-solution', async (block: Record) => {
       const blockMessage = await this.network.createGenericMessage('block', block)
       this.network.gossip(blockMessage)
-      this.emit('block', block)
+      this.emit('block', block.getRecord())
+    })
+
+    this.ledger.on('tx', (txRecord: Record) => {
+      this.emit('tx', txRecord)
     })
 
     // tracker 
@@ -314,7 +318,6 @@ export default class Subspace extends EventEmitter {
     // await this.init()
     const joined = await this.network.join()
     this.emit('join')
-    
   }
 
   public async leave() {
@@ -1276,7 +1279,7 @@ export default class Subspace extends EventEmitter {
     // assumes the host already has an entry into the tracker
 
     const pledge = this.wallet.profile.pledge
-    if (!pledge.interval) {
+    if (!pledge) {
       throw new Error('Cannot join host network without first submitting a pledge tx')
     }
 
@@ -1305,7 +1308,7 @@ export default class Subspace extends EventEmitter {
 
     await Promise.all(promises)
 
-    // comile signatures, create and gossip the join messsage 
+    // compile signatures, create and gossip the join messsage 
     const publicIP = this.network.my_ip
     const isGateway = this.isGateway()
     const signatures = [...this.neighborProofs.values()]

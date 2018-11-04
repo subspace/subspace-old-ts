@@ -25,14 +25,40 @@ const init = async () => {
 
     subspace.on('block', block => {
       console.log(block)
+      // console.log(subspace.tracker.lht)
     })
 
-    await subspace.startFarmer(10000)
+    await subspace.network.join()
+    console.log('joined')
 
-    setTimeout(() => {
-      subspace.stopFarmer()
-      console.log('Stopped farmer')
+    await subspace.startFarmer(10000)
+    console.log('started farming')
+
+    // join hosts 
+
+    await subspace.joinHosts()
+    console.log('joined hosts')
+   
+    setTimeout(async () => {
+
+      // leave hosts 
+
+      await subspace.leaveHosts()
+      console.log('left host')
+
+      await subspace.stopFarmer()
+      console.log('stopped farming')
+
+      await subspace.network.leave()
+      console.log('left')
     }, 60000)
+
+    
+    
+
+
+
+
 
   }
   catch (error) {

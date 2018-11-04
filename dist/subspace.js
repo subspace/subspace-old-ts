@@ -169,7 +169,10 @@ class Subspace extends events_1.default {
         this.ledger.on('block-solution', async (block) => {
             const blockMessage = await this.network.createGenericMessage('block', block);
             this.network.gossip(blockMessage);
-            this.emit('block', block);
+            this.emit('block', block.getRecord());
+        });
+        this.ledger.on('tx', (txRecord) => {
+            this.emit('tx', txRecord);
         });
         // tracker 
         this.tracker = new tracker_1.Tracker(this.storage, this.wallet, this.ledger);
@@ -1067,7 +1070,7 @@ class Subspace extends events_1.default {
         // should add a delay or ensure the tx has been anchored in the ledger 
         // assumes the host already has an entry into the tracker
         const pledge = this.wallet.profile.pledge;
-        if (!pledge.interval) {
+        if (!pledge) {
             throw new Error('Cannot join host network without first submitting a pledge tx');
         }
         const profile = this.wallet.getProfile();
@@ -1091,7 +1094,7 @@ class Subspace extends events_1.default {
             }
         }
         await Promise.all(promises);
-        // comile signatures, create and gossip the join messsage 
+        // compile signatures, create and gossip the join messsage 
         const publicIP = this.network.my_ip;
         const isGateway = this.isGateway();
         const signatures = [...this.neighborProofs.values()];
