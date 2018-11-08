@@ -32,7 +32,7 @@ const DEFAULT_CONTRACT_SIZE = 1000000000; // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000; // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2;
 class Subspace extends events_1.default {
-    constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledge = null, interval = null) {
+    constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledged = null, interval = null) {
         super();
         this.bootstrap = bootstrap;
         this.gatewayNodes = gatewayNodes;
@@ -41,7 +41,7 @@ class Subspace extends events_1.default {
         this.name = name;
         this.email = email;
         this.passphrase = passphrase;
-        this.spacePledge = spacePledge;
+        this.spacePledged = spacePledged;
         this.interval = interval;
         this.isInit = false;
         this.isHosting = false;

@@ -15,7 +15,7 @@ export default class Subspace extends EventEmitter {
     name: string;
     email: string;
     passphrase: string;
-    spacePledge: number;
+    spacePledged: number | null;
     interval: number;
     storage: Storage;
     network: Network;
@@ -34,7 +34,7 @@ export default class Subspace extends EventEmitter {
     failedNeighbors: Map<string, boolean>;
     pendingFailures: Map<string, IPendingFailure>;
     evictedShards: Map<string, Set<string>>;
-    constructor(bootstrap?: boolean, gatewayNodes?: IGatewayNodeObject[], gatewayCount?: number, delegated?: boolean, name?: string, email?: string, passphrase?: string, spacePledge?: number, interval?: number);
+    constructor(bootstrap?: boolean, gatewayNodes?: IGatewayNodeObject[], gatewayCount?: number, delegated?: boolean, name?: string, email?: string, passphrase?: string, spacePledged?: number | null, interval?: number);
     private addRequest;
     private removeRequest;
     private resolveRequest;

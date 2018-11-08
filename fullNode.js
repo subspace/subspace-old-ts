@@ -31,7 +31,7 @@ const init = async () => {
     await subspace.network.join()
     console.log('joined')
 
-    await subspace.startFarmer(10000)
+    await subspace.startFarmer(100)
     console.log('started farming')
 
     // join hosts 
@@ -39,30 +39,22 @@ const init = async () => {
     await subspace.joinHosts()
     console.log('joined hosts')
    
-    setTimeout(async () => {
+    // setTimeout(async () => {
 
-      // leave hosts 
+    //   // leave hosts 
 
-      await subspace.leaveHosts()
-      console.log('left host')
+    //   await subspace.leaveHosts()
+    //   console.log('left host')
 
-      await subspace.stopFarmer()
-      console.log('stopped farming')
+    //   await subspace.stopFarmer()
+    //   console.log('stopped farming')
 
-      await subspace.network.leave()
-      console.log('left')
-    }, 60000)
-
-    
-    
-
-
-
-
+    //   await subspace.network.leave()
+    //   console.log('left')
+    // }, 60000)  
 
   }
   catch (error) {
-    // console.log(subspace)
     throw(error)
   }
 }

@@ -67,9 +67,12 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#975c0a3528564b3667521a68deae71cab4d8e187"
+  resolved "git+ssh://git@github.com/subspace/network.git#60b2cfbe7ccbecb5f7027482eec8b22831ceaef1"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
+    "@subspace/tracker" "github:subspace/tracker"
+    "@subspace/wallet" "github:subspace/wallet"
+    "@types/node" "^10.10.2"
     "@types/openpgp" "^4.0.0"
     "@types/websocket" "0.0.40"
     array-map-set "^1.0.3"
@@ -128,7 +131,11 @@
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.0.tgz#719551d2352d301ac8b81db732acb6bdc28dbdef"
 
-"@types/node@*", "@types/node@^10.9.2":
+"@types/node@*", "@types/node@^10.10.2":
+  version "10.12.3"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.3.tgz#3918b73ceed484e58367be5acb79d1775239e393"
+
+"@types/node@^10.9.2":
   version "10.12.2"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.2.tgz#d77f9faa027cadad9c912cd47f4f8b07b0fb0864"
 
@@ -137,8 +144,8 @@
   resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-0.0.30.tgz#3c4d907a5b8b1ad94943268f8f31b970cfcf409d"
 
 "@types/openpgp@^4.0.0":
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-4.0.0.tgz#e33dbb1958d64b434d76ad3b55b79601345ae984"
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-4.0.1.tgz#a6ea065174603eec86e969c5b707a0e4806945de"
 
 "@types/websocket@0.0.40":
   version "0.0.40"
@@ -3080,7 +3087,7 @@ path-exists@^3.0.0:
 
 path-is-absolute@^1.0.0, path-is-absolute@^1.0.1:
   version "1.0.1"
-  resolved "https://registry.yarnpkg.com/path-is-absolute/-/path-is-absolute-1.0.1.tgz#174b9268735534ffbc7ace6bf53a5a9e1b5c5f5f"
+  resolved "http://registry.npmjs.org/path-is-absolute/-/path-is-absolute-1.0.1.tgz#174b9268735534ffbc7ace6bf53a5a9e1b5c5f5f"
 
 path-key@^2.0.0:
   version "2.0.1"

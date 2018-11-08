@@ -53,7 +53,7 @@ export default class Subspace extends EventEmitter {
     public name = DEFAULT_PROFILE_NAME,
     public email = DEFAULT_PROFILE_EMAIL,
     public passphrase = DEFAULT_CONTRACT_PASSPHRASE,
-    public spacePledge: number = null,
+    public spacePledged: number | null = null,
     public interval: number = null
   ) {
     super()
