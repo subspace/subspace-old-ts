@@ -14,7 +14,6 @@ const DEFAULT_PROFILE_EMAIL = 'name@name.com'
 const DEFAULT_PROFILE_PASSPHRASE = 'passphrase'
 const DEFAULT_HOST_PLEDGE = 10000000000 // 10 GB in bytes
 const DEFAULT_HOST_INTERVAL = 2628000000 // 1 month in ms
-const DEFAULT_GATEWAY_NODES: IGatewayNodeObject[] = []
 const DEFAULT_GATEWAY_COUNT = 1
 const DEFAULT_CONTRACT_NAME = 'key'
 const DEFAULT_CONTRACT_EMAIL = 'key@key.com'
@@ -22,6 +21,10 @@ const DEFAULT_CONTRACT_PASSPHRASE = 'lockandkey'
 const DEFAULT_CONTRACT_SIZE = 1000000000  // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000   // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
+
+const DEFAULT_GATEWAY_NODES: string[] = [
+  'localhost:8125'
+]
 
 export default class Subspace extends EventEmitter {
 
@@ -32,7 +35,7 @@ export default class Subspace extends EventEmitter {
   public database: DataBase
   public ledger: Ledger
   
-  public isInit = false
+  public isGateway = false
   public isHosting = false
   public env = ''
   public storageAdapter = ''
@@ -131,12 +134,6 @@ export default class Subspace extends EventEmitter {
       })
     }, 600000)
   }
-
-  private isGateway() {
-    const profile = this.wallet.getProfile()
-    const nodeIds = this.gatewayNodes.map(node => node.nodeId)
-    return nodeIds.includes(profile.id)
-  }
   
   public async initEnv() {
     if (typeof window !== 'undefined') {
@@ -152,10 +149,9 @@ export default class Subspace extends EventEmitter {
     }
   }
   
-  public async init(env: string): Promise<void> {
+  public async init(env: string, gateway: boolean, path?: string): Promise<void> {
 
-
-    if (this.isInit) return
+    this.isGateway = gateway
     this.env = env
 
     // determine the node env
@@ -169,7 +165,7 @@ export default class Subspace extends EventEmitter {
       this.storageAdapter = 'rocks'
     }
 
-    this.storage = new Storage(this.storageAdapter)
+    this.storage = new Storage(this.storageAdapter, path)
 
     // init the profile
       // if no profile, will create a new default profile
@@ -235,7 +231,7 @@ export default class Subspace extends EventEmitter {
 
     this.network.on('join', () => this.emit('join'))
     this.network.on('leave', () => this.emit('leave'))
-    this.network.on('connection', connection => this.emit('connection', connection.node_id))
+    this.network.on('connection', connection => this.emit('connection', connection.nodeId))
 
     this.network.on('disconnection', (connection: IConnectionObject) => {
       this.emit('disconnection', connection.nodeId)
@@ -243,14 +239,20 @@ export default class Subspace extends EventEmitter {
     
     
     this.network.on('message', async (message) => {
+      console.log('new message: ', message.type)
       let valid = false
       // handle validation for gossiped messages here
       // specific rpc methods are emitted and handled in corresponding parent method
 
       // prevent revalidating and regoissiping the same messages
-      const messagedId = crypto.getHash(JSON.stringify(message.data))
+      let messagedId: string = null
+      if (message.data) {
+        messagedId = crypto.getHash(JSON.stringify(message.data))
+      } 
       if (!this.messages.has(messagedId)) {
-        this.messages.set(messagedId, Date.now())
+        if (messagedId) {
+          this.messages.set(messagedId, Date.now())
+        }
         switch(message.type) {
           case('tx'):
             // first ensure we have a valid SSDB record wrapping the tx
@@ -288,7 +290,6 @@ export default class Subspace extends EventEmitter {
       }
     })
 
-    this.isInit = true
     this.emit('ready')
   }
 
@@ -313,10 +314,10 @@ export default class Subspace extends EventEmitter {
 
   // core network methods
 
-  public async join() {  
+  public async join(myTcpPort = 8124, myAddress: 'localhost') {  
     // join the subspace network as a node, connecting to some gateway nodes
     // await this.init()
-    const joined = await this.network.join()
+    const joined = await this.network.join(myTcpPort, myAddress)
     this.emit('join')
   }
 
@@ -1309,10 +1310,9 @@ export default class Subspace extends EventEmitter {
     await Promise.all(promises)
 
     // compile signatures, create and gossip the join messsage 
-    const publicIP = this.network.my_ip
-    const isGateway = this.isGateway()
+    const publicIP = this.network.myIp
     const signatures = [...this.neighborProofs.values()]
-    const joinMessage = await this.tracker.createJoinMessage(publicIP, isGateway, signatures)
+    const joinMessage = await this.tracker.createJoinMessage(publicIP, this.isGateway, signatures)
     await this.network.gossip(joinMessage)
     this.tracker.updateEntry(joinMessage.data)
     this.isHosting = true

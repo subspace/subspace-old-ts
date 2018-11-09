@@ -2,14 +2,14 @@
 import EventEmitter from 'events';
 import Wallet, { IProfileOptions } from '@subspace/wallet';
 import Storage from '@subspace/storage';
-import Network, { IGatewayNodeObject } from '@subspace/network';
+import Network from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
 import { INeighborProof, IPendingFailure } from './interfaces';
 export default class Subspace extends EventEmitter {
     bootstrap: boolean;
-    gatewayNodes: IGatewayNodeObject[];
+    gatewayNodes: string[];
     gatewayCount: number;
     delegated: boolean;
     name: string;
@@ -23,7 +23,7 @@ export default class Subspace extends EventEmitter {
     tracker: Tracker;
     database: DataBase;
     ledger: Ledger;
-    isInit: boolean;
+    isGateway: boolean;
     isHosting: boolean;
     env: string;
     storageAdapter: string;
@@ -34,7 +34,7 @@ export default class Subspace extends EventEmitter {
     failedNeighbors: Map<string, boolean>;
     pendingFailures: Map<string, IPendingFailure>;
     evictedShards: Map<string, Set<string>>;
-    constructor(bootstrap?: boolean, gatewayNodes?: IGatewayNodeObject[], gatewayCount?: number, delegated?: boolean, name?: string, email?: string, passphrase?: string, spacePledged?: number | null, interval?: number);
+    constructor(bootstrap?: boolean, gatewayNodes?: string[], gatewayCount?: number, delegated?: boolean, name?: string, email?: string, passphrase?: string, spacePledged?: number | null, interval?: number);
     private addRequest;
     private removeRequest;
     private resolveRequest;
@@ -45,12 +45,11 @@ export default class Subspace extends EventEmitter {
     private sendContractResponse;
     private getRequestSize;
     private startMessagePruner;
-    private isGateway;
     initEnv(): Promise<void>;
-    init(env: string): Promise<void>;
+    init(env: string, gateway: boolean, path?: string): Promise<void>;
     createProfile(options?: IProfileOptions): Promise<void>;
     deleteProfile(): Promise<void>;
-    join(): Promise<void>;
+    join(myTcpPort: number, myAddress: 'localhost'): Promise<void>;
     leave(): Promise<void>;
     connect(nodeId: string): Promise<void>;
     disconnect(nodeId: string): Promise<void>;

@@ -23,7 +23,6 @@ const DEFAULT_PROFILE_EMAIL = 'name@name.com';
 const DEFAULT_PROFILE_PASSPHRASE = 'passphrase';
 const DEFAULT_HOST_PLEDGE = 10000000000; // 10 GB in bytes
 const DEFAULT_HOST_INTERVAL = 2628000000; // 1 month in ms
-const DEFAULT_GATEWAY_NODES = [];
 const DEFAULT_GATEWAY_COUNT = 1;
 const DEFAULT_CONTRACT_NAME = 'key';
 const DEFAULT_CONTRACT_EMAIL = 'key@key.com';
@@ -31,6 +30,9 @@ const DEFAULT_CONTRACT_PASSPHRASE = 'lockandkey';
 const DEFAULT_CONTRACT_SIZE = 1000000000; // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000; // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2;
+const DEFAULT_GATEWAY_NODES = [
+    'localhost:8125'
+];
 class Subspace extends events_1.default {
     constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledged = null, interval = null) {
         super();
@@ -43,7 +45,7 @@ class Subspace extends events_1.default {
         this.passphrase = passphrase;
         this.spacePledged = spacePledged;
         this.interval = interval;
-        this.isInit = false;
+        this.isGateway = false;
         this.isHosting = false;
         this.env = '';
         this.storageAdapter = '';
@@ -118,11 +120,6 @@ class Subspace extends events_1.default {
             });
         }, 600000);
     }
-    isGateway() {
-        const profile = this.wallet.getProfile();
-        const nodeIds = this.gatewayNodes.map(node => node.nodeId);
-        return nodeIds.includes(profile.id);
-    }
     async initEnv() {
         if (typeof window !== 'undefined') {
             console.log('Browser env detected');
@@ -138,9 +135,8 @@ class Subspace extends events_1.default {
             this.env = 'private-host';
         }
     }
-    async init(env) {
-        if (this.isInit)
-            return;
+    async init(env, gateway, path) {
+        this.isGateway = gateway;
         this.env = env;
         // determine the node env
         // await this.initEnv()
@@ -151,7 +147,7 @@ class Subspace extends events_1.default {
         else {
             this.storageAdapter = 'rocks';
         }
-        this.storage = new storage_1.default(this.storageAdapter);
+        this.storage = new storage_1.default(this.storageAdapter, path);
         // init the profile
         // if no profile, will create a new default profile
         // if args, will create a new profile from args
@@ -196,18 +192,24 @@ class Subspace extends events_1.default {
         this.startMessagePruner();
         this.network.on('join', () => this.emit('join'));
         this.network.on('leave', () => this.emit('leave'));
-        this.network.on('connection', connection => this.emit('connection', connection.node_id));
+        this.network.on('connection', connection => this.emit('connection', connection.nodeId));
         this.network.on('disconnection', (connection) => {
             this.emit('disconnection', connection.nodeId);
         });
         this.network.on('message', async (message) => {
+            console.log('new message: ', message.type);
             let valid = false;
             // handle validation for gossiped messages here
             // specific rpc methods are emitted and handled in corresponding parent method
             // prevent revalidating and regoissiping the same messages
-            const messagedId = crypto.getHash(JSON.stringify(message.data));
+            let messagedId = null;
+            if (message.data) {
+                messagedId = crypto.getHash(JSON.stringify(message.data));
+            }
             if (!this.messages.has(messagedId)) {
-                this.messages.set(messagedId, Date.now());
+                if (messagedId) {
+                    this.messages.set(messagedId, Date.now());
+                }
                 switch (message.type) {
                     case ('tx'):
                         // first ensure we have a valid SSDB record wrapping the tx
@@ -242,7 +244,6 @@ class Subspace extends events_1.default {
                 }
             }
         });
-        this.isInit = true;
         this.emit('ready');
     }
     async createProfile(options) {
@@ -263,10 +264,10 @@ class Subspace extends events_1.default {
         }
     }
     // core network methods
-    async join() {
+    async join(myTcpPort = 8124, myAddress) {
         // join the subspace network as a node, connecting to some gateway nodes
         // await this.init()
-        const joined = await this.network.join();
+        const joined = await this.network.join(myTcpPort, myAddress);
         this.emit('join');
     }
     async leave() {
@@ -1095,10 +1096,9 @@ class Subspace extends events_1.default {
         }
         await Promise.all(promises);
         // compile signatures, create and gossip the join messsage 
-        const publicIP = this.network.my_ip;
-        const isGateway = this.isGateway();
+        const publicIP = this.network.myIp;
         const signatures = [...this.neighborProofs.values()];
-        const joinMessage = await this.tracker.createJoinMessage(publicIP, isGateway, signatures);
+        const joinMessage = await this.tracker.createJoinMessage(publicIP, this.isGateway, signatures);
         await this.network.gossip(joinMessage);
         this.tracker.updateEntry(joinMessage.data);
         this.isHosting = true;

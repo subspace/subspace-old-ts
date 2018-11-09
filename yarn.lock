@@ -28,7 +28,7 @@
 
 "@subspace/crypto@github:subspace/crypto":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/crypto.git#b9c8dd7930ac433516cf542cef81ac32c04c7fc7"
+  resolved "git+ssh://git@github.com/subspace/crypto.git#b97fc1400d0395bf84707a09690a7a3c109d8bc4"
   dependencies:
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
     "@subspace/rendezvous-hash" "github:subspace/rendezvous-hash"
@@ -50,7 +50,7 @@
 
 "@subspace/jump-consistent-hash@github:subspace/jump-consistent-hash":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/jump-consistent-hash.git#8c35f586380b1570608f96f9c7726669451d15a8"
+  resolved "git+ssh://git@github.com/subspace/jump-consistent-hash.git#da2f8998dc70276933a49eef4eb423413633487e"
   dependencies:
     "@types/long" "^4.0.0"
     long "^4.0.0"
@@ -67,14 +67,17 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#60b2cfbe7ccbecb5f7027482eec8b22831ceaef1"
+  resolved "git+ssh://git@github.com/subspace/network.git#8413c9986d7f280bdd094e570ecf9f0e8f85d3fd"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
+    "@subspace/ledger" "github:subspace/ledger"
+    "@subspace/storage" "github:subspace/storage"
     "@subspace/tracker" "github:subspace/tracker"
     "@subspace/wallet" "github:subspace/wallet"
     "@types/node" "^10.10.2"
     "@types/openpgp" "^4.0.0"
     "@types/websocket" "0.0.40"
+    "@types/ws" "^6.0.1"
     array-map-set "^1.0.3"
     geoip-lite "^1.3.2"
     geolib "^2.0.24"
@@ -82,18 +85,18 @@
     public-ip "^2.4.0"
     tcp-port-used "^1.0.0"
     websocket "^1.0.28"
-    ws "^6.0.0"
+    ws "^6.1.0"
 
 "@subspace/rendezvous-hash@github:subspace/rendezvous-hash":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/rendezvous-hash.git#6258e633e59945dc4489f7e2c1e7b2241c85258f"
+  resolved "git+ssh://git@github.com/subspace/rendezvous-hash.git#22d9e024c571b665ddd12ad3ede8b1e205f75cb1"
   dependencies:
     tslint "^5.11.0"
     typescript "^3.0.3"
 
 "@subspace/storage@github:subspace/storage":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/storage.git#351b7aa03ddded717e59a60cedf7e7a813955948"
+  resolved "git+ssh://git@github.com/subspace/storage.git#9bf67d57526eaf08d08d10618a453e7e4426d0a4"
   dependencies:
     level-rocksdb "^3.0.1"
     localforage "^1.7.2"
@@ -132,8 +135,8 @@
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.0.tgz#719551d2352d301ac8b81db732acb6bdc28dbdef"
 
 "@types/node@*", "@types/node@^10.10.2":
-  version "10.12.3"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.3.tgz#3918b73ceed484e58367be5acb79d1775239e393"
+  version "10.12.5"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.5.tgz#7e7ea1a9b34d2c8d704cb0b755dffbcda34741ad"
 
 "@types/node@^10.9.2":
   version "10.12.2"
@@ -216,10 +219,6 @@ ajv@^5.3.0:
     fast-deep-equal "^1.0.0"
     fast-json-stable-stringify "^2.0.0"
     json-schema-traverse "^0.3.0"
-
-amdefine@~1.0.0:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/amdefine/-/amdefine-1.0.1.tgz#4a5282ac164729e93619bcfd3ad151f817ce91f5"
 
 ansi-escapes@^3.0.0:
   version "3.1.0"
@@ -789,13 +788,6 @@ component-emitter@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/component-emitter/-/component-emitter-1.2.1.tgz#137918d6d78283f7df7a6b7c5a63e140e69425e6"
 
-"compressjs@github:openpgpjs/compressjs":
-  version "1.0.3-git"
-  resolved "https://codeload.github.com/openpgpjs/compressjs/tar.gz/bfbb371a34d1750afa34bfa49156461acdab79a9"
-  dependencies:
-    amdefine "~1.0.0"
-    commander "~2.8.1"
-
 concat-map@0.0.1:
   version "0.0.1"
   resolved "https://registry.yarnpkg.com/concat-map/-/concat-map-0.0.1.tgz#d8a96bd77fd68df7793a73036a3ba0d5405d477b"
@@ -1017,8 +1009,8 @@ ecc-jsbn@~0.1.1:
     minimalistic-crypto-utils "^1.0.0"
 
 email-addresses@^3.0.0:
-  version "3.0.2"
-  resolved "https://registry.yarnpkg.com/email-addresses/-/email-addresses-3.0.2.tgz#a31280d19baf86669840a0aa45be1d7f6e7df315"
+  version "3.0.3"
+  resolved "https://registry.yarnpkg.com/email-addresses/-/email-addresses-3.0.3.tgz#fc3c6952f68da24239914e982c8a7783bc2ed96d"
 
 encoding-down@~5.0.0:
   version "5.0.4"
@@ -1374,8 +1366,8 @@ gauge@~2.7.3:
     wide-align "^1.1.0"
 
 geoip-lite@^1.3.2:
-  version "1.3.2"
-  resolved "https://registry.yarnpkg.com/geoip-lite/-/geoip-lite-1.3.2.tgz#2d2cb6cb5a1cba0017d058d2ac3e67e368c415ba"
+  version "1.3.3"
+  resolved "https://registry.yarnpkg.com/geoip-lite/-/geoip-lite-1.3.3.tgz#2dffca4af09505bd7cf18eca55936c96d62ff20c"
   dependencies:
     async "^2.1.1"
     colors "^1.1.2"
@@ -1464,8 +1456,8 @@ got@^8.0.0:
     url-to-options "^1.0.1"
 
 graceful-fs@^4.1.11:
-  version "4.1.14"
-  resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.1.14.tgz#1b6e8362ef8c5ecb5da799901f39297e3054773a"
+  version "4.1.15"
+  resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.1.15.tgz#ffb703e1066e8a0eeaa4c8b80ba9253eeefbfb00"
 
 graceful-fs@^4.1.2:
   version "4.1.11"
@@ -2787,8 +2779,8 @@ node-abi@^2.2.0:
     semver "^5.4.1"
 
 node-fetch@^2.1.2:
-  version "2.2.0"
-  resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.2.0.tgz#4ee79bde909262f9775f731e3656d0db55ced5b5"
+  version "2.2.1"
+  resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.2.1.tgz#1fe551e0ded6c45b3b3b937d0fb46f76df718d1e"
 
 node-int64@^0.4.0:
   version "0.4.0"
@@ -2956,8 +2948,8 @@ once@^1.3.0, once@^1.3.1, once@^1.4.0:
     wrappy "1"
 
 openpgp@^4.0.0:
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/openpgp/-/openpgp-4.1.2.tgz#8acb355b871b1f23a6ab4d1316db4166d3f934c5"
+  version "4.2.1"
+  resolved "https://registry.yarnpkg.com/openpgp/-/openpgp-4.2.1.tgz#5d693ca9d90f52f0826447a37596b6a9a5a725da"
   dependencies:
     "@mattiasbuelens/web-streams-polyfill" "0.1.0-alpha.4"
     address-rfc2822 "^2.0.3"
@@ -2965,12 +2957,12 @@ openpgp@^4.0.0:
     asn1.js "^5.0.0"
     bn.js "^4.11.8"
     buffer "^5.0.8"
-    compressjs "github:openpgpjs/compressjs"
     elliptic "github:openpgpjs/elliptic"
     hash.js "^1.1.3"
     node-fetch "^2.1.2"
     node-localstorage "~1.3.0"
     pako "^1.0.6"
+    seek-bzip "github:openpgpjs/seek-bzip"
     web-stream-tools "github:openpgpjs/web-stream-tools"
 
 optimist@^0.6.1:
@@ -2993,7 +2985,7 @@ optionator@^0.8.1:
 
 os-homedir@^1.0.0, os-homedir@^1.0.1:
   version "1.0.2"
-  resolved "https://registry.yarnpkg.com/os-homedir/-/os-homedir-1.0.2.tgz#ffbc4988336e0e833de0c168c7ef152121aa7fb3"
+  resolved "http://registry.npmjs.org/os-homedir/-/os-homedir-1.0.2.tgz#ffbc4988336e0e833de0c168c7ef152121aa7fb3"
 
 os-locale@^2.0.0:
   version "2.1.0"
@@ -3500,6 +3492,12 @@ save@^2.3.2:
 sax@^1.2.4:
   version "1.2.4"
   resolved "https://registry.yarnpkg.com/sax/-/sax-1.2.4.tgz#2816234e2378bddc4e5354fab5caa895df7100d9"
+
+"seek-bzip@github:openpgpjs/seek-bzip":
+  version "1.0.5-git"
+  resolved "https://codeload.github.com/openpgpjs/seek-bzip/tar.gz/3aca608ffedc055a1da1d898ecb244804ef32209"
+  dependencies:
+    commander "~2.8.1"
 
 "semver@2 || 3 || 4 || 5", semver@^5.3.0, semver@^5.4.1, semver@^5.5, semver@^5.5.0:
   version "5.6.0"
@@ -4213,7 +4211,7 @@ ws@^5.2.0:
   dependencies:
     async-limiter "~1.0.0"
 
-ws@^6.0.0:
+ws@^6.1.0:
   version "6.1.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-6.1.0.tgz#119a9dbf92c54e190ec18d10e871d55c95cf9373"
   dependencies:
