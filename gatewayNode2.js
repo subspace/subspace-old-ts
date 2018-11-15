@@ -22,7 +22,7 @@ const init = async () => {
       // console.log(block)
     })
 
-    await subspace.init('gateway', true, 'gw1')   
+    await subspace.init('gateway', true, 'gw2')   
     
     await subspace.deleteProfile()
 
@@ -36,7 +36,7 @@ const init = async () => {
 
     console.log('seeded plot')
 
-    await subspace.join(8126, '127.0.0.1')
+    await subspace.join(8127, '127.0.0.1')
 
 
     await subspace.startFarmer(5000)

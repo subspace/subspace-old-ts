@@ -185,10 +185,14 @@ export default class Subspace extends EventEmitter {
     // ledger 
     this.ledger = new Ledger(this.storage, this.wallet)
 
-    this.ledger.on('block-solution', async (block: Record) => {
+    this.ledger.on('block-solution', async (block: any) => {
+      // receive a packed record for sending over the network
+      console.log('Gossiping a new block solution: ', block._key, '\n')
       const blockMessage = await this.network.createGenericMessage('block', block)
       this.network.gossip(blockMessage)
-      this.emit('block', block.getRecord())
+      const blockRecord = Record.readPacked(block._key, block._value)
+      await blockRecord.unpack(null)
+      this.emit('block', blockRecord)
     })
 
     this.ledger.on('tx', (txRecord: Record) => {
@@ -245,16 +249,22 @@ export default class Subspace extends EventEmitter {
       // specific rpc methods are emitted and handled in corresponding parent method
 
       // prevent revalidating and regoissiping the same messages
-      let messagedId: string = null
-      if (message.data) {
-        messagedId = crypto.getHash(JSON.stringify(message.data))
-      } 
-      if (!this.messages.has(messagedId)) {
-        if (messagedId) {
-          this.messages.set(messagedId, Date.now())
+      if (['block', 'solution'].includes(message.type)) {
+        const messagedId = crypto.getHash(JSON.stringify(message.data))
+        if (this.messages.has(messagedId)) { 
+          return
         }
-        switch(message.type) {
-          case('tx'):
+        this.messages.set(messagedId, Date.now())
+      }
+  
+      let response = null
+      switch(message.type) {
+
+        // don't validate tx and blocks until you have the full ledger 
+        // and are ready to start farming 
+
+        case('tx'):
+          if (this.ledger.hasLedger) {
             // first ensure we have a valid SSDB record wrapping the tx
             const txRecord = Record.readUnpacked(message.data.key, message.data.value) 
             const txRecordTest = await txRecord.isValid()
@@ -263,30 +273,79 @@ export default class Subspace extends EventEmitter {
               const txTest = await this.ledger.onTx(txRecord)
               if (txTest.valid) {
                 const txMessage = await this.network.createGenericMessage('tx', message.data)
-                this.network.gossip(txMessage)
+                this.network.gossip(txMessage, message.sender)
                 this.emit('tx', txRecord)
               }
-            }          
-            break
-          case('block'):
-            // first validate the immutable record on SSDB
-            const blockRecord = Record.readUnpacked(message.data.key, message.data.value)
-            const blockRecordTest = await blockRecord.isValid()
-            if (blockRecordTest.valid) {
-              // extract the block data and validate that in ledger
-              const blockTest = await this.ledger.onBlock(blockRecord)
-              if (blockTest.valid) {
-                const blockMessage = await this.network.createGenericMessage('block', message.data)
-                this.network.gossip(blockMessage)
-                this.emit('block', blockRecord)
-
-
-              }
+            }       
+          }
+          break
+        case('block'):
+          if (this.ledger.hasLedger) {
+            const blockRecord = Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)))
+            await blockRecord.unpack(null)
+            console.log('Received a new block via gossip: ', blockRecord.key, '\n')
+            // console.log(blockRecord.value)
+            const blockRecordTest = await this.ledger.onBlock(blockRecord)
+            if (!blockRecordTest.valid) {
+              
+              throw new Error(blockRecordTest.reason)
             }
-            break
-          default:
-            this.emit(message.type, message.data)
-        }
+
+            const blockMessage = await this.network.createGenericMessage('block', message.data)
+            // should not be returned to the same node
+
+            this.network.gossip(blockMessage, message.sender)
+            this.emit('block', blockRecord)
+          }
+          break
+        case('chain-request'):
+          const chain = this.ledger.chain
+          response = await this.network.createGenericMessage('chain-reply', chain)
+          await this.send(message.sender, response)
+          break
+        case('last-block-id-request'):
+          const lastBlockId = this.ledger.getLastBlockId()
+          response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId)
+          await this.network.send(message.sender, response)
+          break
+        case('block-header-request'):
+          const blockKey = message.data
+          const blockValue = JSON.parse( await this.storage.get(blockKey))
+          blockValue.content = JSON.stringify(blockValue.content)
+          const block = Record.readPacked(blockKey, blockValue)
+          response = await this.network.createGenericMessage('block-header-reply', block.getRecord())
+          await this.network.send(message.sender, response)
+          break
+        case('tx-request'):
+          const txKey = message.data
+          const txValue = JSON.parse( await this.storage.get(txKey))
+          const tx = Record.readPacked(txKey, txValue)
+          response = await this.network.createGenericMessage('tx-reply', tx.getRecord())
+          await this.network.send(message.sender, response)
+          break
+        case('pending-block-header-request'):
+          const pendingBlockId = this.ledger.validBlocks[0]
+          if (pendingBlockId) {
+            const pendingBlockValue = JSON.parse(JSON.stringify(this.ledger.pendingBlocks.get(pendingBlockId)))
+            const pendingBlock = Record.readUnpacked(pendingBlockId, pendingBlockValue)
+            await pendingBlock.pack(null)
+            response = await this.network.createGenericMessage('pending-block-header-reply', pendingBlock.getRecord())
+          } else {
+            response = await this.network.createGenericMessage('pending-block-header-reply', null)
+          }
+          await this.network.send(message.sender, response)
+          break
+        case('pending-tx-request'):
+          const pendingTxId = message.data
+          console.log(pendingTxId)
+          const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)))
+          const pendingTxRecord = Record.readUnpacked(pendingTxId, pendingTxValue)
+          await pendingTxRecord.pack(null)
+          response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord())
+          await this.network.send(message.sender, response)
+          break
+        default:
+          this.emit(message.type, message.data)
       }
     })
 
@@ -567,7 +626,7 @@ export default class Subspace extends EventEmitter {
         }
 
         // validate the contract mutable record
-        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(contractState.key))}
+        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(contractState.key))))
         const testRequest = await this.database.isValidPutRequest(contractState, contract, request)
         if (!testRequest.valid) {
           this.sendContractResponse(message.sender, false, testRequest.reason, contractState.key )
@@ -641,7 +700,7 @@ export default class Subspace extends EventEmitter {
         // validate the contract request
         const request: IPutRequest = message.data 
         const record = this.database.loadPackedRecord(request.record)
-        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
+        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
         const testRequest = await this.database.isValidPutRequest(record, contract, request)
         if (!testRequest.valid)  {
           this.sendPutResponse(message.sender, false, testRequest.reason, record.key)
@@ -792,7 +851,7 @@ export default class Subspace extends EventEmitter {
         const request: IRevRequest = message.data 
         const newRecord = this.database.loadPackedRecord(request.record)
         const oldRecord = await this.database.getRecord(newRecord.key)
-        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
+        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
         const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request)
 
         if (!testRequest.valid)  {
@@ -875,7 +934,7 @@ export default class Subspace extends EventEmitter {
         // unpack key and validate request
         const request: IDelRequest = message.data
         const record = await this.database.getRecord(request.recordId)
-        const contract = {...this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))}
+        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
         
         const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request)
         if (!testRequest.valid)  {
@@ -926,103 +985,119 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  // ledger data methods
+  // core ledger and farming methods
+
+  public async startFarmer(blockTime?: number) {
+    // bootstrap or fetch the ledger before starting to farm the chain
+
+    if (blockTime) {
+      this.ledger.setBlockTime(blockTime)
+    }
+    
+    if (this.bootstrap) { 
+      this.ledger.hasLedger = true
+      this.ledger.isFarming = true
+      await this.ledger.bootstrap()
+    } else {
+      await this.getLedger(blockTime)
+      this.ledger.isFarming = true
+    } 
+  }
+
+  private async getLedger(blockTime: number) {
+    // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
+
+    let myLastBlockId = this.ledger.getLastBlockId()
+    let gatewayLastBlockId = await this.getLastBlockId()
+    
+    let previousBlockRecord: Record = null
+    while (myLastBlockId !== gatewayLastBlockId) {
+      console.log('*****  Getting ledger segment  *******')
+      previousBlockRecord = await this.getLedgerSegment(myLastBlockId)
+      myLastBlockId = this.ledger.getLastBlockId()
+      gatewayLastBlockId = await this.getLastBlockId()
+      console.log('Last block ids: ', myLastBlockId, gatewayLastBlockId)
+    }
+
+    console.log('Got full ledger')
+    this.ledger.hasLedger = true
+    await this.onLedger(blockTime, previousBlockRecord)
+  }
 
   private getLastBlockId(): Promise<string> {
     return new Promise<string> ( async (resolve, reject) => {
+      // rpc method to retrieve the last block id (head) of the ledger from a gateway node
+
       const request = await this.network.createGenericMessage('last-block-id-request')
       const gateway = this.network.getGateways()[0]
       await this.network.send(gateway, request)
 
-      this.on('last-block-id-request', async (message: IGenericMessage) => {
-        const lastBlockId = this.ledger.getLastBlockId()
-        const response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId)
-        await this.network.send(message.sender, response)
-      })
-
-      this.on('last-block-id-reply', async (message: IGenericMessage) => {
-        resolve(message.data)
+      this.once('last-block-id-reply', async (blockId: string) => {
+        resolve(blockId)
       })
     })
+  }
+
+  private async getLedgerSegment(myLastBlockId: string) {
+    // fetch a segment of the ledger based on the current state of the chain from a gateway
+    
+    const chain = await this.getChain()
+    let previousBlockRecord: Record = null
+    if (!myLastBlockId) {
+      // get the chain from genesis block 
+      console.log('getting chain from genesis block')
+      for (const blockId of chain) {
+        previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+      }
+    }  else {
+      // get the chain from my last block 
+      function findBlockId(blockId: string) {
+        return blockId === myLastBlockId
+      }
+      const myLastBlockIndex = chain.findIndex(findBlockId)
+      const previousBlockValue = JSON.parse(JSON.stringify(this.ledger.clearedBlocks.get(myLastBlockId)))
+      previousBlockRecord = Record.readUnpacked(myLastBlockId, previousBlockValue)
+      let blockId: string = null
+      console.log('getting chain from block: ', myLastBlockId)
+      for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
+        blockId = chain[i] 
+        if (blockId) {
+          previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+        }
+      }
+    }
+    myLastBlockId = previousBlockRecord.key
+    console.log('got ledger segment')
+    return previousBlockRecord
   }
 
   private getChain(): Promise<string[]> {
     return new Promise<string[]>( async (resolve, reject) => {
+      // rpc method to fetch the chain (array of blockHeaderIds) from a gateway node
+
       const request = await this.network.createGenericMessage('chain-request')
       const gateway = this.network.getGateways()[0]
-      await this.network.send(gateway, request)
+      await this.send(gateway, request)
 
-      this.on('chain-request', async (message: IGenericMessage) => {
-        const chain = this.ledger.chain
-        const response = await this.network.createGenericMessage('chain-reply', chain)
-        await this.network.send(message.sender, response)
-      })
-
-      this.on('chain-reply', async (message: IGenericMessage) => {
-        resolve(message.data)
-      })
-    })
-  }
-
-  private getBlockHeader(blockId: string): Promise<Record> {
-    return new Promise<Record> ( async (resolve, reject) => {
-      const request = await this.network.createGenericMessage('block-header-request', blockId)
-      const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
-
-      this.on('block-header-request', async (message: IGenericMessage) => {
-        const blockValue = JSON.parse( await this.storage.get(message.data))
-        const block = Record.readPacked(blockId, blockValue)
-        const response = await this.network.createGenericMessage('block-header-reply', block)
-        await this.network.send(message.sender, response)
-      })
-
-      this.on('block-header-reply', async (message: IGenericMessage) => {
-        if (message.data) {
-          const block: Record = message.data
-          this.storage.put(block.key, JSON.stringify(block.value))
-          await block.unpack(null)
-          resolve(block)
-        } else {
-          reject(new Error('Node does not have block'))
-        }
-      })
-    })
-  }
-
-  private getTx(txId: string): Promise<Record> {
-    return new Promise<Record>( async (resolve, reject) => {
-      const request = await this.network.createGenericMessage('tx-request', txId)
-      const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
-
-      this.on('tx-request', async (message: IGenericMessage) => {
-        const txValue = JSON.parse( await this.storage.get(message.data))
-        const tx = Record.readPacked(txId, txValue)
-        const response = await this.network.createGenericMessage('tx-reply', tx)
-        await this.network.send(message.sender, response)
-      })
-
-      this.on('tx-reply', async (message: IGenericMessage) => {
-        if (message.data) {
-          const tx: Record = message.data
-          this.storage.put(tx.key, JSON.stringify(tx.value))
-          await tx.unpack(null)
-          resolve(tx)
-        } else {
-          reject(new Error('Node does not have tx'))
-        }
+      this.once('chain-reply', async (chain: string[]) => {
+        console.log(chain)
+        resolve(chain)
       })
     })
   }
 
   private async getLastBlock(blockId: string, previousBlockRecord: Record) {
+    // fetches and validates each block header and tx for a given block, applying the block if all are valid
+
     const blockRecord = await this.getBlockHeader(blockId)
+    // console.log(blockRecord)
     const blockRecordTest = await blockRecord.isValid()
     if (!blockRecordTest.valid) {
       throw new Error(blockRecordTest.reason)
     }
     const block = new Block(blockRecord.value.content)
+
+    // console.log(block)
 
     // validate block
     if (!block.value.previousBlock) { 
@@ -1044,11 +1119,13 @@ export default class Subspace extends EventEmitter {
       // validate the tx record
       const txRecordTest = await txRecord.isValid()
       if (!txRecordTest.valid) {
+        
         throw new Error(txRecordTest.reason)
       }
       // then validate the tx data
       const txTest = await this.ledger.onTx(txRecord)
       if (!txTest.valid) {
+        console.log(txId, txRecord)
         throw new Error(txTest.reason)
       }
     }
@@ -1058,50 +1135,180 @@ export default class Subspace extends EventEmitter {
     return blockRecord
   }
 
-  private async getLedger() {
-    // start downloading the ledger
+  private getBlockHeader(blockId: string): Promise<Record> {
+    return new Promise<Record> ( async (resolve, reject) => {
+      // RPC method to get a cleared block header from a gateway node
 
-    let myLastBlockId = this.ledger.getLastBlockId()
-    const chain = await this.getChain()
-    let previousBlockRecord: Record = null
-    if (!myLastBlockId) {
-      // get the chain from genesis block 
-      for (const blockId of chain) {
-        previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
-      }
-    }  else {
-      // get the chain from my last block 
-      function findBlockId(blockId: string) {
-        return blockId === myLastBlockId
-      }
-      const myLastBlockIndex = chain.findIndex(findBlockId)
-      const previousBlockValue = {...this.ledger.clearedBlocks.get(myLastBlockId)}
-      previousBlockRecord = Record.readUnpacked(myLastBlockId, previousBlockValue)
-      let blockId: string = null
-      for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
-        blockId = chain[i] 
-        previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
-      }
-    }
+      console.log('block-header-request for: ', blockId)
+      const request = await this.network.createGenericMessage('block-header-request', blockId)
+      const gateway = this.network.getGateways()[0]
+      this.network.send(gateway, request)
+
+      this.once('block-header-reply', async (block: {key: string, value: Record['value']}) => {
+        if (block) {
+          // console.log('Block in block-header-reply is:')
+          // console.log(block.value)
+          this.storage.put(block.key, JSON.stringify(block.value))
+          const blockRecord = Record.readPacked(block.key, block.value)
+          await blockRecord.unpack(null)
+          resolve(blockRecord)
+        } else {
+          reject(new Error('Node does not have block'))
+        }
+      })
+    })
   }
 
-  // farmer methods
+  private getTx(txId: string): Promise<Record> {
+    return new Promise<Record>( async (resolve, reject) => {
+      // rpc method to get a cleared tx from a gateway node
 
-  public async startFarmer(blockTime?: number) {
+      const request = await this.network.createGenericMessage('tx-request', txId)
+      const gateway = this.network.getGateways()[0]
+      this.network.send(gateway, request)
 
-    if (blockTime) {
-      this.ledger.setBlockTime(blockTime)
-    }
+      this.once('tx-reply', async (tx: {key: string, value: Record['value']}) => {
+        if (tx) {
+          // console.log('start')
+          // console.log(tx)
+          // console.log('end')
+          this.storage.put(tx.key, JSON.stringify(tx.value))
+          const txRecord = Record.readPacked(tx.key, tx.value)
+          await txRecord.unpack(null)
+          resolve(txRecord)
+        } else {
+          reject(new Error('Node does not have tx'))
+        }
+      })
+    })
+  }
+
+  private async onLedger(blockTime: number, previousBlockRecord: Record) {
+    // called once all cleared blocks have been fetched
+    // checks for the best pending block then starts the block interval based on last block publish time
+
+    // modify hasLedger to listen for new tx now 
+    // start the block interval timer based on time remaining on the last cleared block 
+    // the pending block is not being applied to the ledger before the next block is gossiped 
+    // contract tx is created in applyBlock, but only if farming 
+      // when fetching the ledger, reward and contract tx should be created on getting a new block, not recreated
+      // is the contract for the last block fetched being created, so that their will be a contract for the next block 
+
     
-    if (this.bootstrap) { 
-      this.ledger.hasLedger = true
-      this.ledger.isFarming = true
-      await this.ledger.bootstrap()
-    } else {
-      await this.getLedger()
-      this.ledger.hasLedger = true
-      this.ledger.isFarming = true
+
+    // wouldn't start time always be set from the last cleared block?
+    // the interval should always be reset based on the last cleared block, each time 
+      // block time will be variable based on the delay
+      // but the most valid block cannot be determined until the delay has expired
+
+      // each local proposed block is not created until the delay for the best solution expires 
+      // the block is gosssiped but not applied until the full interval expires 
+      // the full interval should always carry forward from the genesis block 
+
+      // genesis time should be included in each block 
+
+    console.log('getting genesis time')
+    const genesisTime = await this.getGenesisTime()
+    const chainLength = this.ledger.chain.length
+    const stopTime = genesisTime + (chainLength * blockTime)
+
+    const timeRemaining = stopTime - Date.now()
+    console.log(stopTime, timeRemaining)
+    console.log('timeRemaining is: ', timeRemaining/1000)
+    setTimeout( async () => {
+      // apply the best solution 
+      const blockId = this.ledger.validBlocks[0]
+      if (blockId) {
+        const blockValue = this.ledger.pendingBlocks.get(blockId)
+        // console.log(blockValue)
+        const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
+        await this.ledger.applyBlock(blockRecord)
+      }
+    }, timeRemaining)
+
+    await this.getPendingBlock()
+
+    // create the contract tx for the last block 
+
+
+    console.log('got pending block and txs')  
+  }
+
+  public async getGenesisTime() {
+    // get the 
+    const genesisBlockId = this.ledger.chain[0]
+    const genesisBlock =  JSON.parse( await this.storage.get(genesisBlockId))
+    const genesisRecord = Record.readUnpacked(genesisBlockId, genesisBlock)
+    return genesisRecord.value.createdAt
+  }
+
+  private async getPendingBlock() {
+    const pendingBlockHeader = await this.getPendingBlockHeader()
+    if (pendingBlockHeader) {
+      if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
+        console.log('Pending block header is: ', pendingBlockHeader.key)
+        console.log('getting pending block header and all txs')
+        // fetch each tx from gateway mem pool 
+        for (const txId of pendingBlockHeader.value.content.txSet) {
+          const pendingTxRecord = await this.getPendingTx(txId)
+          const txRecordTest = await pendingTxRecord.isValid()
+  
+          // validate the tx record
+          if (!txRecordTest.valid) {
+            throw new Error(txRecordTest.reason)
+          }
+  
+          // then validate the tx data
+          const txTest = await this.ledger.onTx(pendingTxRecord)
+          if (!txTest.valid) {
+            throw new Error(txTest.reason)
+          }
+        } 
+  
+        // validate the block which adds to pendingBlocks if valid and best solution
+        const blockRecordTest = await this.ledger.onBlock(pendingBlockHeader)
+        if (!blockRecordTest.valid) {
+          throw new Error(blockRecordTest.reason)
+        }
+      }
     } 
+  }
+
+  private async getPendingBlockHeader(): Promise<Record> {
+    return new Promise<Record> ( async (resolve, reject) => {
+      // rpc method to fetch the most valid pending block from a gateway node
+      const request = await this.network.createGenericMessage('pending-block-header-request')
+      const gateway = this.network.getGateways()[0]
+      this.network.send(gateway, request)
+
+      this.once('pending-block-header-reply', async (pendingBlock: {key: string, value: Record['value']}) => {
+        if (pendingBlock) {
+          // console.log('Block in pending-block-header-reply is:')
+          // console.log(pendingBlock)
+          const pendingBlockRecord = Record.readPacked(pendingBlock.key, pendingBlock.value)
+          // console.log(pendingBlockRecord)
+          await pendingBlockRecord.unpack(null)
+          resolve (pendingBlockRecord)
+        }
+        resolve()  
+      })
+    })
+  }
+
+  private async getPendingTx(txId: string): Promise<Record> {
+    return new Promise<Record> ( async (resolve, reject) => {
+      // rpc method to fetch a pending tx from a gateway node
+
+      const request = await this.network.createGenericMessage('pending-tx-request', txId)
+      const gateway = this.network.getGateways()[0]
+      this.network.send(gateway, request)
+
+      this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
+        const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
+        await pendingTxRecord.unpack(null)
+        resolve(pendingTxRecord)
+      })
+    })
   }
 
   public stopFarmer() {
@@ -1169,7 +1376,7 @@ export default class Subspace extends EventEmitter {
 
         // update my neighbors
         this.neighbors.add(message.sender)
-        this.neighborProofs.set(message.sender, {...response.proof})
+        this.neighborProofs.set(message.sender, JSON.parse(JSON.stringify(response.proof)))
         resolve()
       })      
     })
@@ -1195,7 +1402,7 @@ export default class Subspace extends EventEmitter {
         }
 
         // validate the contract and shard match 
-        const contract = {...this.ledger.clearedContracts.get(request.contractRecordId)}
+        const contract = JSON.parse(JSON.stringify(this.ledger.clearedContracts.get(request.contractRecordId)))
         const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved)
         if (!shards.includes(request.shardId)) {
           const responseMessage = await this.network.createGenericMessage('shard-reply', response)
@@ -1228,6 +1435,7 @@ export default class Subspace extends EventEmitter {
         const shard = this.database.getShard(request.shardId)
         for (const recordId of shard.records) {
           const recordValue: IValue = JSON.parse(await this.storage.get(recordId))
+          recordValue.content = JSON.stringify(recordValue.content)
           const record = Record.readPacked(recordId, recordValue)
           response.records.push(record)
         }
@@ -1296,7 +1504,7 @@ export default class Subspace extends EventEmitter {
 
     // get all of my assigned shards, an expensive, (hoepfully) one-time operation 
     for (const [recordId, original] of this.ledger.clearedContracts) {
-      const contract = {...original}
+      const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
       for (const shardId of shards) {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts
@@ -1334,7 +1542,7 @@ export default class Subspace extends EventEmitter {
         // for each valid neighbor, validate the signature 
         for (const proof of join.signatures) {
           if (neighbors.has(crypto.getHash(proof.neighbor)) && proof.host === join.nodeId) {
-            const unsignedProof = {...proof}
+            const unsignedProof = JSON.parse(JSON.stringify(proof))
             unsignedProof.signature = null
             if (await crypto.isValidSignature(unsignedProof, proof.signature, proof.neighbor)) {
               validCount ++
@@ -1364,7 +1572,7 @@ export default class Subspace extends EventEmitter {
     // derive all shards for this host and see if I am the next closest host
     const profile = this.wallet.getProfile()
     for (const [recordId, original] of this.ledger.clearedContracts) {
-      const contract = {...original}
+      const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
       for (const shardId of shards) {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts
@@ -1394,13 +1602,13 @@ export default class Subspace extends EventEmitter {
       const profile = this.wallet.getProfile()
 
       // validate the signature
-      const unsignedLeave = {...leave}
+      const unsignedLeave = JSON.parse(JSON.stringify(leave))
       unsignedLeave.signature = null
       if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
         const entry = this.tracker.getEntry(message.sender)
         if (entry && entry.status) {
           // valid leave, gossip back out
-          await this.network.gossip(message)
+          await this.network.gossip(message, message.sender)
           
           // see if I need to replicate any shards for this host
           this.replicateShards(message.sender)
@@ -1442,7 +1650,7 @@ export default class Subspace extends EventEmitter {
                   signatures: [],
                   createdAt: Date.now()
                 }
-                this.pendingFailures.set(nodeId, {...pendingFailure})
+                this.pendingFailures.set(nodeId, JSON.parse(JSON.stringify(pendingFailure)))
 
                 // start the failure message 
                 const failureMessage = await this.tracker.createFailureMessage(nodeId)
@@ -1475,13 +1683,13 @@ export default class Subspace extends EventEmitter {
     this.on('failure-reply', async (message: IGenericMessage) => {
       const response: ISignatureObject = message.data
       // validate the signature
-      const unsignedResponse = {...response}
+      const unsignedResponse = JSON.parse(JSON.stringify(response))
       unsignedResponse.signature = null
       // if valid signature, add to pending failure 
       if (await crypto.isValidSignature(unsignedResponse, response.publicKey, response.signature)) {
-        const pendingFailure = {...this.pendingFailures.get(response.nodeId)}
+        const pendingFailure = JSON.parse(JSON.stringify(this.pendingFailures.get(response.nodeId)))
         pendingFailure.signatures.push(response)
-        this.pendingFailures.set(response.nodeId, {...pendingFailure})
+        this.pendingFailures.set(response.nodeId, JSON.parse(JSON.stringify(pendingFailure)))
         // once you have 2/3 signatures turn into a failure proof
         if (pendingFailure.signatures.length >= pendingFailure.neighbors.size * (2/3)) {
           // resolve the failure request 
@@ -1504,7 +1712,7 @@ export default class Subspace extends EventEmitter {
         let validSigs = 0
         for (const signature of failure.signatures) {
           if (neighbors.has(crypto.getHash(signature.publicKey))) {
-            const unsignedSig = {...signature}
+            const unsignedSig = JSON.parse(JSON.stringify(signature))
             unsignedSig.signature = null
             if (await crypto.isValidSignature(signature, signature.signature, signature.publicKey)) {
               validSigs ++
@@ -1522,7 +1730,7 @@ export default class Subspace extends EventEmitter {
           this.tracker.updateEntry(failure)
 
           // continue to spread the failure message
-          this.network.gossip(message)
+          this.network.gossip(message, message.sender)
 
           // remove the node from pending failure if I am a neighbor
           if (this.pendingFailures.has(failure.nodeId)) {

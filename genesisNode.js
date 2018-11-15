@@ -23,6 +23,10 @@ const init = async () => {
       console.log('Joined the Network')
     })
 
+    subspace.on('block', block => {
+      // console.log(block)
+    })
+
     await subspace.init('gateway', true)   
     
     await subspace.deleteProfile()
@@ -37,38 +41,10 @@ const init = async () => {
 
     console.log('seeded plot')
 
-    await subspace.join(8125, 'localhost')
+    await subspace.join(8125, '127.0.0.1')
 
-    // bootstrap gateway with no gateway nodes, listen on localhost
-
-    // bootstrap second node with gateway ip/port passed in 
-
-    // bootstrap -> fetch the ledger
-
-    // bootstrap -> fetch the tracker
-
-    // send ledger tx
-
-    // join/leave the tracker 
-
-    // should their be a simple UI/dashboard?
-      // ledger
-      // tracker
-      // records
-
-    // how would you connect from a client? 
-    // maybe easier to just do this as a light client that holds the ledger 
-
-    // subspace.on('block', block => {
-    //   console.log(block)
-    //   // console.log(subspace.tracker.lht)
-    // })
-
-    // await subspace.network.join()
-    // console.log('joined')
-
-    // await subspace.startFarmer(100)
-    // console.log('started farming')
+    await subspace.startFarmer(5000)
+    console.log('started farming')
 
     // join hosts 
 
