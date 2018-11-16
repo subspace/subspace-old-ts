@@ -49,6 +49,7 @@ export default class Subspace extends EventEmitter {
     init(env: string, gateway: boolean, path?: string): Promise<void>;
     createProfile(options?: IProfileOptions): Promise<void>;
     deleteProfile(): Promise<void>;
+    getGateways(): Promise<void>;
     join(myTcpPort: number, myAddress: 'localhost'): Promise<void>;
     leave(): Promise<void>;
     connect(nodeId: string): Promise<void>;

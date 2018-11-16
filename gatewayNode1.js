@@ -3,7 +3,7 @@ const Subspace = require('./dist/subspace')
 const init = async () => {
   
   try {
-    const subspace = new Subspace.default(false, ['127.0.0.1:8125'], 1)
+    const subspace = new Subspace.default(false, ['127.0.0.1:8125'], 2)
 
     subspace.on('ready', () => {
       console.log('ready event has fired in full node')

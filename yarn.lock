@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#e6dbb69b35a5f7b6f78a983108e5b7b9a55e64a6"
+  resolved "git+ssh://git@github.com/subspace/network.git#43206505bc7a600dd5825ae3273d59fa886f7263"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/ledger" "github:subspace/ledger"
@@ -134,7 +134,11 @@
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.0.tgz#719551d2352d301ac8b81db732acb6bdc28dbdef"
 
-"@types/node@*", "@types/node@^10.10.2", "@types/node@^10.9.2":
+"@types/node@*", "@types/node@^10.10.2":
+  version "10.12.9"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.9.tgz#a07bfa74331471e1dc22a47eb72026843f7b95c8"
+
+"@types/node@^10.9.2":
   version "10.12.7"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.7.tgz#195808b2d4b2e7c33e75e7d9b24aeee88f94660d"
 
@@ -1275,8 +1279,8 @@ find-up@^2.1.0:
     locate-path "^2.0.0"
 
 flatmap-stream@^0.1.0:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/flatmap-stream/-/flatmap-stream-0.1.1.tgz#d34f39ef3b9aa5a2fc225016bd3adf28ac5ae6ea"
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/flatmap-stream/-/flatmap-stream-0.1.2.tgz#b1da359a93f24f6d96e46f948552d997e3c2863d"
 
 for-each@~0.3.3:
   version "0.3.3"

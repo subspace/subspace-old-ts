@@ -8,7 +8,7 @@ const init = async () => {
     // figure out what the default port is for tcp to start
 
 
-    const subspace = new Subspace.default(true, [], 1)
+    const subspace = new Subspace.default(true, [], 3)
 
     subspace.on('ready', () => {
       console.log('ready event has fired in full node')

@@ -257,12 +257,23 @@ export default class Subspace extends EventEmitter {
         this.messages.set(messagedId, Date.now())
       }
   
-      let response = null
+      let response, peer: string, connection: IConnectionObject = null
       switch(message.type) {
 
         // don't validate tx and blocks until you have the full ledger 
         // and are ready to start farming 
 
+        case('peer-added'):
+          peer = message.data
+          connection = this.network.getConnectionFromId(message.sender)
+          connection.peers.push(peer)
+          break
+        case('peer-removed'):
+          peer = message.data
+          connection = this.network.getConnectionFromId(message.sender)
+          const index = connection.peers.indexOf(peer)
+          connection.peers.splice(index, 1)
+          break
         case('tx'):
           if (this.ledger.hasLedger) {
             // first ensure we have a valid SSDB record wrapping the tx
@@ -297,6 +308,10 @@ export default class Subspace extends EventEmitter {
             this.network.gossip(blockMessage, message.sender)
             this.emit('block', blockRecord)
           }
+          break
+        case('gateway-request'):
+          response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes)
+          await this.send(message.sender, response)
           break
         case('chain-request'):
           const chain = this.ledger.chain
@@ -373,11 +388,68 @@ export default class Subspace extends EventEmitter {
 
   // core network methods
 
-  public async join(myTcpPort = 8124, myAddress: 'localhost') {  
-    // join the subspace network as a node, connecting to some gateway nodes
-    // await this.init()
-    const joined = await this.network.join(myTcpPort, myAddress)
-    this.emit('join')
+  public async getGateways(): Promise<void> {
+    return new Promise<void>( async (resolve, reject) => {
+      // request the latest array of gateway nodes from the first gateway node, merge with your array
+
+      const gateway = this.network.getClosestGateways(1)[0]
+      const message = await this.network.createGenericMessage('gateway-request')
+      await this.send(gateway.nodeId, message)
+
+      this.once('gateway-reply', (message: IGenericMessage) => {
+        const newGateways: Set<IGatewayNodeObject> = new Set(message.data)
+        const oldGateways = new Set(this.network.gatewayNodes)
+        const combinedGateways = new Set([...newGateways, ...oldGateways])
+        this.network.gatewayNodes = [...combinedGateways]
+        resolve()
+      })
+    })
+  }
+
+  public async join(myTcpPort = 8124, myAddress: 'localhost'): Promise<void> {  
+    return new Promise<void>( async (resolve, reject) => {
+      // join the subspace network as a node, connecting to some known gateway nodes
+      // currently connects to a signle know gateway and then fetches existing nodes from it 
+
+      // connect to the first gateway 
+      await this.network.join(myTcpPort, myAddress)
+
+
+      if (this.bootstrap) {
+        return resolve()
+      }
+
+      console.log('not bootstrapping')
+
+      // get all active gateways 
+      await this.getGateways()
+
+      console.log('got gateways')
+
+      // connect to each not already connected to, up to gateway count
+      const gateways = this.network.getGateways()
+      console.log(gateways)
+      const peers = this.network.getPeers().filter(peer =>  !gateways.includes(peer))
+      console.log(peers)
+      if (!peers.length) {
+        return resolve()
+      }
+
+      for (const gateway of this.network.gatewayNodes) {
+
+        if(!peers.includes(gateway.nodeId)) {
+          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.port)
+          console.log('connected to a new gateway')
+          const connectedGatewayCount = this.network.getGateways().length
+          if (connectedGatewayCount === this.gatewayCount) {
+            this.emit('join')
+            resolve()
+          }
+        }
+      }  
+      
+      
+    })
   }
 
   public async leave() {
