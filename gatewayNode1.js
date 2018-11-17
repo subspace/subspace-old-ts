@@ -3,15 +3,14 @@ const Subspace = require('./dist/subspace')
 const init = async () => {
   
   try {
-    const subspace = new Subspace.default(false, ['127.0.0.1:8125'], 2)
+    const subspace = new Subspace.default(false,  ['772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125'], 2)
 
     subspace.on('ready', () => {
       console.log('ready event has fired in full node')
     })
 
     subspace.on('connection', (connection) => {
-      console.log('Connected to a new node:')
-      console.log(connection)
+      console.log('Connected to a new node: ', connection)
     })
 
     subspace.on('join', () => {
@@ -24,19 +23,15 @@ const init = async () => {
 
     await subspace.init('gateway', true, 'gw1')   
     
-    await subspace.deleteProfile()
-
-    console.log('deleted profile')
-
-    await subspace.createProfile()
-
-    console.log('recreated profile')
+    console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
     await subspace.seedPlot()
 
     console.log('seeded plot')
 
     await subspace.join(8126, '127.0.0.1')
+
+    console.log('joined the network')
 
 
     await subspace.startFarmer(5000)

@@ -67,7 +67,7 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#43206505bc7a600dd5825ae3273d59fa886f7263"
+  resolved "git+ssh://git@github.com/subspace/network.git#edd5721b6817ecbbdf922ef26076a4fa038ce1c7"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/ledger" "github:subspace/ledger"

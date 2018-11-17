@@ -8,6 +8,7 @@ import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
 import { resolve } from 'url';
+import { IJoinMessage } from '@subspace/network/dist/interfaces';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -22,8 +23,8 @@ const DEFAULT_CONTRACT_SIZE = 1000000000  // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000   // 1 month in ms
 const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
 
-const DEFAULT_GATEWAY_NODES: string[] = [
-  'localhost:8125'
+const DEFAULT_GATEWAY_NODES = [
+  '772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:port:8125'
 ]
 
 export default class Subspace extends EventEmitter {
@@ -243,7 +244,7 @@ export default class Subspace extends EventEmitter {
     
     
     this.network.on('message', async (message) => {
-      console.log('new message: ', message.type)
+      console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
       // specific rpc methods are emitted and handled in corresponding parent method
@@ -396,8 +397,8 @@ export default class Subspace extends EventEmitter {
       const message = await this.network.createGenericMessage('gateway-request')
       await this.send(gateway.nodeId, message)
 
-      this.once('gateway-reply', (message: IGenericMessage) => {
-        const newGateways: Set<IGatewayNodeObject> = new Set(message.data)
+      this.once('gateway-reply', (message: IGatewayNodeObject[]) => {
+        const newGateways: Set<IGatewayNodeObject> = new Set(message)
         const oldGateways = new Set(this.network.gatewayNodes)
         const combinedGateways = new Set([...newGateways, ...oldGateways])
         this.network.gatewayNodes = [...combinedGateways]
@@ -414,32 +415,28 @@ export default class Subspace extends EventEmitter {
       // connect to the first gateway 
       await this.network.join(myTcpPort, myAddress)
 
-
       if (this.bootstrap) {
         return resolve()
       }
 
-      console.log('not bootstrapping')
-
       // get all active gateways 
       await this.getGateways()
 
-      console.log('got gateways')
-
       // connect to each not already connected to, up to gateway count
       const gateways = this.network.getGateways()
-      console.log(gateways)
-      const peers = this.network.getPeers().filter(peer =>  !gateways.includes(peer))
-      console.log(peers)
-      if (!peers.length) {
-        return resolve()
-      }
+      const peers = this.network.getPeers()
+      
+      // .filter(peer => !gateways.includes(peer))
+      // if (!peers.length) {
+      //   console.log('resovling join early')
+      //   return resolve()
+      // }
+
+      // console.log('connecting to gateways')
 
       for (const gateway of this.network.gatewayNodes) {
-
-        if(!peers.includes(gateway.nodeId)) {
-          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.port)
-          console.log('connected to a new gateway')
+        if(!peers.includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
+          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort)
           const connectedGatewayCount = this.network.getGateways().length
           if (connectedGatewayCount === this.gatewayCount) {
             this.emit('join')
@@ -447,6 +444,8 @@ export default class Subspace extends EventEmitter {
           }
         }
       }  
+
+      resolve()
       
       
     })
@@ -460,8 +459,7 @@ export default class Subspace extends EventEmitter {
 
   public async connect(nodeId: string) {
     // connect to another node directly as a peer
-    const connection = await this.network.connect(nodeId)
-    this.emit('connection', connection)
+    await this.network.connect(nodeId)
   }
 
   public async disconnect(nodeId: string) {
@@ -1088,7 +1086,7 @@ export default class Subspace extends EventEmitter {
       previousBlockRecord = await this.getLedgerSegment(myLastBlockId)
       myLastBlockId = this.ledger.getLastBlockId()
       gatewayLastBlockId = await this.getLastBlockId()
-      console.log('Last block ids: ', myLastBlockId, gatewayLastBlockId)
+      // console.log('Last block ids: ', myLastBlockId, gatewayLastBlockId)
     }
 
     console.log('Got full ledger')
@@ -1152,7 +1150,7 @@ export default class Subspace extends EventEmitter {
       await this.send(gateway, request)
 
       this.once('chain-reply', async (chain: string[]) => {
-        console.log(chain)
+        // console.log(chain)
         resolve(chain)
       })
     })
@@ -1169,7 +1167,7 @@ export default class Subspace extends EventEmitter {
     }
     const block = new Block(blockRecord.value.content)
 
-    // console.log(block)
+    console.log(block)
 
     // validate block
     if (!block.value.previousBlock) { 

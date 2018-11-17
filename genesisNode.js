@@ -15,8 +15,7 @@ const init = async () => {
     })
 
     subspace.on('connection', (connection) => {
-      console.log('Connected to a new node:')
-      console.log(connection)
+      console.log('Connected to a new node:', connection)
     })
 
     subspace.on('join', () => {
@@ -29,16 +28,9 @@ const init = async () => {
 
     await subspace.init('gateway', true)   
     
-    await subspace.deleteProfile()
-
-    console.log('deleted profile')
-
-    await subspace.createProfile()
-
-    console.log('recreated profile')
+    console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
     await subspace.seedPlot()
-
     console.log('seeded plot')
 
     await subspace.join(8125, '127.0.0.1')
