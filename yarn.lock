@@ -28,7 +28,7 @@
 
 "@subspace/crypto@github:subspace/crypto":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/crypto.git#6d0ece9fb14ad5680bdd72f8a6e49bdd3d7f044a"
+  resolved "git+ssh://git@github.com/subspace/crypto.git#d02a18e37ae9630f39f9bcecc5cb7d34585ebed3"
   dependencies:
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
     "@subspace/rendezvous-hash" "github:subspace/rendezvous-hash"
@@ -41,7 +41,7 @@
 
 "@subspace/database@github:subspace/database":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/database.git#e1301bedfe60526547de5e80afa064917accf9f5"
+  resolved "git+ssh://git@github.com/subspace/database.git#5c3adc54ae3ec3dfb6aaa400145d39a7b9653309"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/jump-consistent-hash" "github:subspace/jump-consistent-hash"
@@ -50,7 +50,7 @@
 
 "@subspace/jump-consistent-hash@github:subspace/jump-consistent-hash":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/jump-consistent-hash.git#8c35f586380b1570608f96f9c7726669451d15a8"
+  resolved "git+ssh://git@github.com/subspace/jump-consistent-hash.git#da2f8998dc70276933a49eef4eb423413633487e"
   dependencies:
     "@types/long" "^4.0.0"
     long "^4.0.0"
@@ -59,7 +59,7 @@
 
 "@subspace/ledger@github:subspace/ledger":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/ledger.git#b59d25ac138b40f5386dd254c554a0b842687ab7"
+  resolved "git+ssh://git@github.com/subspace/ledger.git#05d46b3f3c4a9622eba2725d512b92b633a5eeef"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/database" "github:subspace/database"
@@ -67,11 +67,17 @@
 
 "@subspace/network@github:subspace/network":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/network.git#d5688921b0e070cfb01cfdfeaa85a2571b67da63"
+  resolved "git+ssh://git@github.com/subspace/network.git#edd5721b6817ecbbdf922ef26076a4fa038ce1c7"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
+    "@subspace/ledger" "github:subspace/ledger"
+    "@subspace/storage" "github:subspace/storage"
+    "@subspace/tracker" "github:subspace/tracker"
+    "@subspace/wallet" "github:subspace/wallet"
+    "@types/node" "^10.10.2"
     "@types/openpgp" "^4.0.0"
     "@types/websocket" "0.0.40"
+    "@types/ws" "^6.0.1"
     array-map-set "^1.0.3"
     geoip-lite "^1.3.2"
     geolib "^2.0.24"
@@ -79,18 +85,18 @@
     public-ip "^2.4.0"
     tcp-port-used "^1.0.0"
     websocket "^1.0.28"
-    ws "^6.0.0"
+    ws "^6.1.0"
 
 "@subspace/rendezvous-hash@github:subspace/rendezvous-hash":
   version "0.0.1"
-  resolved "git+ssh://git@github.com/subspace/rendezvous-hash.git#6258e633e59945dc4489f7e2c1e7b2241c85258f"
+  resolved "git+ssh://git@github.com/subspace/rendezvous-hash.git#22d9e024c571b665ddd12ad3ede8b1e205f75cb1"
   dependencies:
     tslint "^5.11.0"
     typescript "^3.0.3"
 
 "@subspace/storage@github:subspace/storage":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/storage.git#b77ae17bd428d06817444ef2a204cbf6d5e55578"
+  resolved "git+ssh://git@github.com/subspace/storage.git#b76190b8d7dd5664d991688948769fd102eff0e3"
   dependencies:
     level-rocksdb "^3.0.1"
     localforage "^1.7.2"
@@ -98,21 +104,21 @@
 
 "@subspace/tracker@github:subspace/tracker":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/tracker.git#c8d73629301ea9fc143d153762807a94acd27eb8"
+  resolved "git+ssh://git@github.com/subspace/tracker.git#9c3f03e8b2b3ebf9262f3257b487bba623558eb3"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
     "@subspace/utils" "github:subspace/utils"
 
 "@subspace/utils@github:subspace/utils":
   version "0.0.2"
-  resolved "git+ssh://git@github.com/subspace/utils.git#00afbeef2922cea8b2ac72c0507c60b79a6e343f"
+  resolved "git+ssh://git@github.com/subspace/utils.git#3beb0863580469ae602241fbac7858f73e01cda7"
   dependencies:
     tslint "^5.11.0"
     typescript "^3.0.3"
 
 "@subspace/wallet@github:subspace/wallet":
   version "1.0.0"
-  resolved "git+ssh://git@github.com/subspace/wallet.git#fa43ebee97275439fc1f8b821b41089ee264e2df"
+  resolved "git+ssh://git@github.com/subspace/wallet.git#188eea0ee4458bd032613085d0098f1d480adb6c"
   dependencies:
     "@subspace/crypto" "github:subspace/crypto"
 
@@ -128,17 +134,21 @@
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/@types/long/-/long-4.0.0.tgz#719551d2352d301ac8b81db732acb6bdc28dbdef"
 
-"@types/node@*", "@types/node@^10.9.2":
-  version "10.12.1"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.1.tgz#da61b64a2930a80fa708e57c45cd5441eb379d5b"
+"@types/node@*", "@types/node@^10.10.2":
+  version "10.12.9"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.9.tgz#a07bfa74331471e1dc22a47eb72026843f7b95c8"
+
+"@types/node@^10.9.2":
+  version "10.12.7"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-10.12.7.tgz#195808b2d4b2e7c33e75e7d9b24aeee88f94660d"
 
 "@types/openpgp@^0.0.30":
   version "0.0.30"
   resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-0.0.30.tgz#3c4d907a5b8b1ad94943268f8f31b970cfcf409d"
 
 "@types/openpgp@^4.0.0":
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-4.0.0.tgz#e33dbb1958d64b434d76ad3b55b79601345ae984"
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/@types/openpgp/-/openpgp-4.0.1.tgz#a6ea065174603eec86e969c5b707a0e4806945de"
 
 "@types/websocket@0.0.40":
   version "0.0.40"
@@ -180,16 +190,16 @@ acorn-globals@^4.1.0:
     acorn-walk "^6.0.1"
 
 acorn-walk@^6.0.1:
-  version "6.1.0"
-  resolved "https://registry.yarnpkg.com/acorn-walk/-/acorn-walk-6.1.0.tgz#c957f4a1460da46af4a0388ce28b4c99355b0cbc"
+  version "6.1.1"
+  resolved "https://registry.yarnpkg.com/acorn-walk/-/acorn-walk-6.1.1.tgz#d363b66f5fac5f018ff9c3a1e7b6f8e310cc3913"
 
 acorn@^5.5.3:
   version "5.7.3"
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-5.7.3.tgz#67aa231bf8812974b85235a96771eb6bd07ea279"
 
 acorn@^6.0.1:
-  version "6.0.2"
-  resolved "https://registry.yarnpkg.com/acorn/-/acorn-6.0.2.tgz#6a459041c320ab17592c6317abbfdf4bbaa98ca4"
+  version "6.0.4"
+  resolved "https://registry.yarnpkg.com/acorn/-/acorn-6.0.4.tgz#77377e7353b72ec5104550aa2d2097a2fd40b754"
 
 address-rfc2822@^2.0.3:
   version "2.0.4"
@@ -198,25 +208,21 @@ address-rfc2822@^2.0.3:
     email-addresses "^3.0.0"
 
 aes-js@^3.1.1:
-  version "3.1.1"
-  resolved "https://registry.yarnpkg.com/aes-js/-/aes-js-3.1.1.tgz#89fd1f94ae51b4c72d62466adc1a7323ff52f072"
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/aes-js/-/aes-js-3.1.2.tgz#db9aabde85d5caabbfc0d4f2a4446960f627146a"
 
-ajv@^5.3.0:
-  version "5.5.2"
-  resolved "https://registry.yarnpkg.com/ajv/-/ajv-5.5.2.tgz#73b5eeca3fab653e3d3f9422b341ad42205dc965"
+ajv@^6.5.5:
+  version "6.5.5"
+  resolved "https://registry.yarnpkg.com/ajv/-/ajv-6.5.5.tgz#cf97cdade71c6399a92c6d6c4177381291b781a1"
   dependencies:
-    co "^4.6.0"
-    fast-deep-equal "^1.0.0"
+    fast-deep-equal "^2.0.1"
     fast-json-stable-stringify "^2.0.0"
-    json-schema-traverse "^0.3.0"
-
-amdefine@~1.0.0:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/amdefine/-/amdefine-1.0.1.tgz#4a5282ac164729e93619bcfd3ad151f817ce91f5"
+    json-schema-traverse "^0.4.1"
+    uri-js "^4.2.2"
 
 ansi-escapes@^3.0.0:
   version "3.1.0"
-  resolved "https://registry.yarnpkg.com/ansi-escapes/-/ansi-escapes-3.1.0.tgz#f73207bb81207d75fd6c83f125af26eea378ca30"
+  resolved "http://registry.npmjs.org/ansi-escapes/-/ansi-escapes-3.1.0.tgz#f73207bb81207d75fd6c83f125af26eea378ca30"
 
 ansi-regex@^2.0.0:
   version "2.1.1"
@@ -286,7 +292,7 @@ arr-union@^3.1.0:
 
 array-equal@^1.0.0:
   version "1.0.0"
-  resolved "https://registry.yarnpkg.com/array-equal/-/array-equal-1.0.0.tgz#8c2a5ef2472fd9ea742b04c77a75093ba2757c93"
+  resolved "http://registry.npmjs.org/array-equal/-/array-equal-1.0.0.tgz#8c2a5ef2472fd9ea742b04c77a75093ba2757c93"
 
 array-map-set@^1.0.3:
   version "1.0.3"
@@ -591,10 +597,10 @@ browser-resolve@^1.11.3:
     resolve "1.1.7"
 
 bs-logger@0.x:
-  version "0.2.5"
-  resolved "https://registry.yarnpkg.com/bs-logger/-/bs-logger-0.2.5.tgz#1d82f0cf88864e1341cd9262237f8d0748a49b22"
+  version "0.2.6"
+  resolved "https://registry.yarnpkg.com/bs-logger/-/bs-logger-0.2.6.tgz#eb7d365307a72cf974cc6cda76b68354ad336bd8"
   dependencies:
-    fast-json-stable-stringify "^2.0.0"
+    fast-json-stable-stringify "2.x"
 
 bser@^2.0.0:
   version "2.0.0"
@@ -698,7 +704,7 @@ chalk@^2.0.0, chalk@^2.0.1, chalk@^2.3.0:
     escape-string-regexp "^1.0.5"
     supports-color "^5.3.0"
 
-chownr@^1.0.1:
+chownr@^1.0.1, chownr@^1.1.1:
   version "1.1.1"
   resolved "https://registry.yarnpkg.com/chownr/-/chownr-1.1.1.tgz#54726b8b8fff4df053c42187e801fb4412df1494"
 
@@ -781,13 +787,6 @@ commander@~2.8.1:
 component-emitter@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/component-emitter/-/component-emitter-1.2.1.tgz#137918d6d78283f7df7a6b7c5a63e140e69425e6"
-
-"compressjs@github:openpgpjs/compressjs":
-  version "1.0.3-git"
-  resolved "https://codeload.github.com/openpgpjs/compressjs/tar.gz/bfbb371a34d1750afa34bfa49156461acdab79a9"
-  dependencies:
-    amdefine "~1.0.0"
-    commander "~2.8.1"
 
 concat-map@0.0.1:
   version "0.0.1"
@@ -1010,8 +1009,8 @@ ecc-jsbn@~0.1.1:
     minimalistic-crypto-utils "^1.0.0"
 
 email-addresses@^3.0.0:
-  version "3.0.2"
-  resolved "https://registry.yarnpkg.com/email-addresses/-/email-addresses-3.0.2.tgz#a31280d19baf86669840a0aa45be1d7f6e7df315"
+  version "3.0.3"
+  resolved "https://registry.yarnpkg.com/email-addresses/-/email-addresses-3.0.3.tgz#fc3c6952f68da24239914e982c8a7783bc2ed96d"
 
 encoding-down@~5.0.0:
   version "5.0.4"
@@ -1208,9 +1207,9 @@ extsprintf@^1.2.0:
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/extsprintf/-/extsprintf-1.4.0.tgz#e2689f8f356fad62cca65a3a91c5df5f9551692f"
 
-fast-deep-equal@^1.0.0:
-  version "1.1.0"
-  resolved "http://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-1.1.0.tgz#c053477817c86b51daa853c81e059b733d023614"
+fast-deep-equal@^2.0.1:
+  version "2.0.1"
+  resolved "https://registry.yarnpkg.com/fast-deep-equal/-/fast-deep-equal-2.0.1.tgz#7b05218ddf9667bf7f370bf7fdb2cb15fdd0aa49"
 
 fast-future@~1.0.2:
   version "1.0.2"
@@ -1280,8 +1279,8 @@ find-up@^2.1.0:
     locate-path "^2.0.0"
 
 flatmap-stream@^0.1.0:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/flatmap-stream/-/flatmap-stream-0.1.1.tgz#d34f39ef3b9aa5a2fc225016bd3adf28ac5ae6ea"
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/flatmap-stream/-/flatmap-stream-0.1.2.tgz#b1da359a93f24f6d96e46f948552d997e3c2863d"
 
 for-each@~0.3.3:
   version "0.3.3"
@@ -1367,8 +1366,8 @@ gauge@~2.7.3:
     wide-align "^1.1.0"
 
 geoip-lite@^1.3.2:
-  version "1.3.2"
-  resolved "https://registry.yarnpkg.com/geoip-lite/-/geoip-lite-1.3.2.tgz#2d2cb6cb5a1cba0017d058d2ac3e67e368c415ba"
+  version "1.3.3"
+  resolved "https://registry.yarnpkg.com/geoip-lite/-/geoip-lite-1.3.3.tgz#2dffca4af09505bd7cf18eca55936c96d62ff20c"
   dependencies:
     async "^2.1.1"
     colors "^1.1.2"
@@ -1457,8 +1456,8 @@ got@^8.0.0:
     url-to-options "^1.0.1"
 
 graceful-fs@^4.1.11, graceful-fs@^4.1.2:
-  version "4.1.11"
-  resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.1.11.tgz#0e8bdfe4d1ddb8854d64e04ea7c00e2a026e5658"
+  version "4.1.15"
+  resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.1.15.tgz#ffb703e1066e8a0eeaa4c8b80ba9253eeefbfb00"
 
 "graceful-readlink@>= 1.0.0":
   version "1.0.1"
@@ -1487,10 +1486,10 @@ har-schema@^2.0.0:
   resolved "https://registry.yarnpkg.com/har-schema/-/har-schema-2.0.0.tgz#a94c2224ebcac04782a0d9035521f24735b7ec92"
 
 har-validator@~5.1.0:
-  version "5.1.0"
-  resolved "https://registry.yarnpkg.com/har-validator/-/har-validator-5.1.0.tgz#44657f5688a22cfd4b72486e81b3a3fb11742c29"
+  version "5.1.3"
+  resolved "https://registry.yarnpkg.com/har-validator/-/har-validator-5.1.3.tgz#1ef89ebd3e4996557675eed9893110dc350fa080"
   dependencies:
-    ajv "^5.3.0"
+    ajv "^6.5.5"
     har-schema "^2.0.0"
 
 has-ansi@^2.0.0:
@@ -2352,15 +2351,15 @@ jsdom@^11.5.1:
 
 jsesc@^1.3.0:
   version "1.3.0"
-  resolved "https://registry.yarnpkg.com/jsesc/-/jsesc-1.3.0.tgz#46c3fec8c1892b12b0833db9bc7622176dbab34b"
+  resolved "http://registry.npmjs.org/jsesc/-/jsesc-1.3.0.tgz#46c3fec8c1892b12b0833db9bc7622176dbab34b"
 
 json-buffer@3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/json-buffer/-/json-buffer-3.0.0.tgz#5b1f397afc75d677bde8bcfc0e47e1f9a3d9a898"
 
-json-schema-traverse@^0.3.0:
-  version "0.3.1"
-  resolved "https://registry.yarnpkg.com/json-schema-traverse/-/json-schema-traverse-0.3.1.tgz#349a6d44c53a51de89b40805c5d5e59b417d3340"
+json-schema-traverse@^0.4.1:
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/json-schema-traverse/-/json-schema-traverse-0.4.1.tgz#69f6a87d9513ab8bb8fe63bdb0979c448e684660"
 
 json-schema@0.2.3:
   version "0.2.3"
@@ -2699,14 +2698,14 @@ minimist@~0.0.1:
   version "0.0.10"
   resolved "http://registry.npmjs.org/minimist/-/minimist-0.0.10.tgz#de3f98543dbf96082be48ad1a0c7cda836301dcf"
 
-minipass@^2.2.1, minipass@^2.3.3:
+minipass@^2.2.1, minipass@^2.3.4:
   version "2.3.5"
   resolved "https://registry.yarnpkg.com/minipass/-/minipass-2.3.5.tgz#cacebe492022497f656b0f0f51e2682a9ed2d848"
   dependencies:
     safe-buffer "^5.1.2"
     yallist "^3.0.0"
 
-minizlib@^1.1.0:
+minizlib@^1.1.1:
   version "1.1.1"
   resolved "https://registry.yarnpkg.com/minizlib/-/minizlib-1.1.1.tgz#6734acc045a46e61d596a43bb9d9cd326e19cc42"
   dependencies:
@@ -2770,14 +2769,14 @@ needle@^2.2.1:
     sax "^1.2.4"
 
 node-abi@^2.2.0:
-  version "2.4.5"
-  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.4.5.tgz#1fd1fb66641bf3c4dcf55a5490ba10c467ead80c"
+  version "2.5.0"
+  resolved "https://registry.yarnpkg.com/node-abi/-/node-abi-2.5.0.tgz#942e1a78bce764bc0c1672d5821e492b9d032052"
   dependencies:
     semver "^5.4.1"
 
 node-fetch@^2.1.2:
-  version "2.2.0"
-  resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.2.0.tgz#4ee79bde909262f9775f731e3656d0db55ced5b5"
+  version "2.3.0"
+  resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.3.0.tgz#1a1d940bbfb916a1d3e0219f037e89e71f8c5fa5"
 
 node-int64@^0.4.0:
   version "0.4.0"
@@ -2945,8 +2944,8 @@ once@^1.3.0, once@^1.3.1, once@^1.4.0:
     wrappy "1"
 
 openpgp@^4.0.0:
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/openpgp/-/openpgp-4.1.2.tgz#8acb355b871b1f23a6ab4d1316db4166d3f934c5"
+  version "4.2.1"
+  resolved "https://registry.yarnpkg.com/openpgp/-/openpgp-4.2.1.tgz#5d693ca9d90f52f0826447a37596b6a9a5a725da"
   dependencies:
     "@mattiasbuelens/web-streams-polyfill" "0.1.0-alpha.4"
     address-rfc2822 "^2.0.3"
@@ -2954,12 +2953,12 @@ openpgp@^4.0.0:
     asn1.js "^5.0.0"
     bn.js "^4.11.8"
     buffer "^5.0.8"
-    compressjs "github:openpgpjs/compressjs"
     elliptic "github:openpgpjs/elliptic"
     hash.js "^1.1.3"
     node-fetch "^2.1.2"
     node-localstorage "~1.3.0"
     pako "^1.0.6"
+    seek-bzip "github:openpgpjs/seek-bzip"
     web-stream-tools "github:openpgpjs/web-stream-tools"
 
 optimist@^0.6.1:
@@ -2982,7 +2981,7 @@ optionator@^0.8.1:
 
 os-homedir@^1.0.0, os-homedir@^1.0.1:
   version "1.0.2"
-  resolved "https://registry.yarnpkg.com/os-homedir/-/os-homedir-1.0.2.tgz#ffbc4988336e0e833de0c168c7ef152121aa7fb3"
+  resolved "http://registry.npmjs.org/os-homedir/-/os-homedir-1.0.2.tgz#ffbc4988336e0e833de0c168c7ef152121aa7fb3"
 
 os-locale@^2.0.0:
   version "2.1.0"
@@ -2994,7 +2993,7 @@ os-locale@^2.0.0:
 
 os-tmpdir@^1.0.0, os-tmpdir@^1.0.1:
   version "1.0.2"
-  resolved "https://registry.yarnpkg.com/os-tmpdir/-/os-tmpdir-1.0.2.tgz#bbe67406c79aa85c5cfec766fe5734555dfa1274"
+  resolved "http://registry.npmjs.org/os-tmpdir/-/os-tmpdir-1.0.2.tgz#bbe67406c79aa85c5cfec766fe5734555dfa1274"
 
 osenv@^0.1.4:
   version "0.1.5"
@@ -3076,7 +3075,7 @@ path-exists@^3.0.0:
 
 path-is-absolute@^1.0.0, path-is-absolute@^1.0.1:
   version "1.0.1"
-  resolved "https://registry.yarnpkg.com/path-is-absolute/-/path-is-absolute-1.0.1.tgz#174b9268735534ffbc7ace6bf53a5a9e1b5c5f5f"
+  resolved "http://registry.npmjs.org/path-is-absolute/-/path-is-absolute-1.0.1.tgz#174b9268735534ffbc7ace6bf53a5a9e1b5c5f5f"
 
 path-key@^2.0.0:
   version "2.0.1"
@@ -3490,6 +3489,12 @@ sax@^1.2.4:
   version "1.2.4"
   resolved "https://registry.yarnpkg.com/sax/-/sax-1.2.4.tgz#2816234e2378bddc4e5354fab5caa895df7100d9"
 
+"seek-bzip@github:openpgpjs/seek-bzip":
+  version "1.0.5-git"
+  resolved "https://codeload.github.com/openpgpjs/seek-bzip/tar.gz/3aca608ffedc055a1da1d898ecb244804ef32209"
+  dependencies:
+    commander "~2.8.1"
+
 "semver@2 || 3 || 4 || 5", semver@^5.3.0, semver@^5.4.1, semver@^5.5, semver@^5.5.0:
   version "5.6.0"
   resolved "https://registry.yarnpkg.com/semver/-/semver-5.6.0.tgz#7e74256fbaa49c75aa7c7a205cc22799cac80004"
@@ -3834,13 +3839,13 @@ tar-stream@^1.1.2:
     xtend "^4.0.0"
 
 tar@^4:
-  version "4.4.6"
-  resolved "https://registry.yarnpkg.com/tar/-/tar-4.4.6.tgz#63110f09c00b4e60ac8bcfe1bf3c8660235fbc9b"
+  version "4.4.8"
+  resolved "https://registry.yarnpkg.com/tar/-/tar-4.4.8.tgz#b19eec3fde2a96e64666df9fdb40c5ca1bc3747d"
   dependencies:
-    chownr "^1.0.1"
+    chownr "^1.1.1"
     fs-minipass "^1.2.5"
-    minipass "^2.3.3"
-    minizlib "^1.1.0"
+    minipass "^2.3.4"
+    minizlib "^1.1.1"
     mkdirp "^0.5.0"
     safe-buffer "^5.1.2"
     yallist "^3.0.2"
@@ -4001,8 +4006,8 @@ typedarray-to-buffer@^3.1.5:
     is-typedarray "^1.0.0"
 
 typescript@^3.0.1, typescript@^3.0.3:
-  version "3.1.4"
-  resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.1.4.tgz#c74ef7b3c2da65beff548b903022cb8c3cd997ed"
+  version "3.1.6"
+  resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.1.6.tgz#b6543a83cfc8c2befb3f4c8fba6896f5b0c9be68"
 
 uglify-js@^3.1.4:
   version "3.4.9"
@@ -4030,6 +4035,12 @@ unset-value@^1.0.0:
   dependencies:
     has-value "^0.3.1"
     isobject "^3.0.0"
+
+uri-js@^4.2.2:
+  version "4.2.2"
+  resolved "https://registry.yarnpkg.com/uri-js/-/uri-js-4.2.2.tgz#94c540e1ff772956e2299507c010aea6c8838eb0"
+  dependencies:
+    punycode "^2.1.0"
 
 urix@^0.1.0:
   version "0.1.0"
@@ -4202,7 +4213,7 @@ ws@^5.2.0:
   dependencies:
     async-limiter "~1.0.0"
 
-ws@^6.0.0:
+ws@^6.1.0:
   version "6.1.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-6.1.0.tgz#119a9dbf92c54e190ec18d10e871d55c95cf9373"
   dependencies:
