@@ -287,7 +287,7 @@ export default class Subspace extends EventEmitter {
     })
 
 
-    this.network.on('message', async (message, callback) => {
+    this.network.on('message', async (message: IMessage, callback) => {
       console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
@@ -295,7 +295,7 @@ export default class Subspace extends EventEmitter {
 
       // prevent revalidating and regoissiping the same messages
       if (['block', 'solution'].includes(message.type)) {
-        const messagedId = crypto.getHash(JSON.stringify(message.data))
+        const messagedId = crypto.getHash(JSON.stringify((message as IGenericMessage).data))
         if (this.messages.has(messagedId)) {
           return
         }
@@ -309,27 +309,27 @@ export default class Subspace extends EventEmitter {
         // and are ready to start farming
 
         case('peer-added'):
-          peer = message.data
-          connection = this.network.getConnectionFromId(message.sender)
+          peer = (message as IGenericMessage).data
+          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
           connection.peers.push(Buffer.from(peer, 'hex'))
           break
         case('peer-removed'):
-          peer = message.data
-          connection = this.network.getConnectionFromId(message.sender)
+          peer = (message as IGenericMessage).data
+          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
           const index = connection.peers.indexOf(Buffer.from(peer, 'hex'))
           connection.peers.splice(index, 1)
           break
         case('tx'):
           if (this.ledger.hasLedger) {
             // first ensure we have a valid SSDB record wrapping the tx
-            const txRecord = Record.readUnpacked(message.data.key, message.data.value)
+            const txRecord = Record.readUnpacked((message as IGenericMessage).data.key, (message as IGenericMessage).data.value)
             const txRecordTest = await txRecord.isValid()
             if (txRecordTest.valid) {
               // then validate the tx data
               const txTest = await this.ledger.onTx(txRecord)
               if (txTest.valid) {
-                const txMessage = await this.network.createGenericMessage('tx', message.data)
-                this.network.gossip(txMessage, message.sender)
+                const txMessage = await this.network.createGenericMessage('tx', (message as IGenericMessage).data)
+                this.network.gossip(txMessage, Buffer.from(message.sender, 'hex'))
                 this.emit('tx', txRecord)
               }
             }
@@ -337,7 +337,7 @@ export default class Subspace extends EventEmitter {
           break
         case('block'):
           if (this.ledger.hasLedger) {
-            const blockRecord = Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)))
+            const blockRecord = Record.readPacked((message as IGenericMessage).data._key, JSON.parse(JSON.stringify((message as IGenericMessage).data._value)))
             await blockRecord.unpack(null)
             console.log('Received a new block via gossip: ', blockRecord.key, '\n')
             // console.log(blockRecord.value)
@@ -347,10 +347,10 @@ export default class Subspace extends EventEmitter {
               throw new Error(blockRecordTest.reason)
             }
 
-            const blockMessage = await this.network.createGenericMessage('block', message.data)
+            const blockMessage = await this.network.createGenericMessage('block', (message as IGenericMessage).data)
             // should not be returned to the same node
 
-            this.network.gossip(blockMessage, message.sender)
+            this.network.gossip(blockMessage, Buffer.from(message.sender, 'hex'))
             this.emit('block', blockRecord)
           }
           break
@@ -359,29 +359,28 @@ export default class Subspace extends EventEmitter {
           await this.send(message.sender, response)
           break
         case('chain-request'):
-          const chain = this.ledger.chain
-          response = await this.network.createGenericMessage('chain-reply', chain)
-          await this.send(message.sender, response)
+          const payload = Buffer.from(JSON.stringify(this.ledger.chain))
+          await this.send(message.sender, payload)
           break
         case('last-block-id-request'):
           const lastBlockId = this.ledger.getLastBlockId()
           response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId)
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('block-header-request'):
-          const blockKey = message.data
+          const blockKey = (message as IGenericMessage).data
           const blockValue = JSON.parse( await this.storage.get(blockKey))
           blockValue.content = JSON.stringify(blockValue.content)
           const block = Record.readPacked(blockKey, blockValue)
           response = await this.network.createGenericMessage('block-header-reply', block.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('tx-request'):
-          const txKey = message.data
+          const txKey = (message as IGenericMessage).data
           const txValue = JSON.parse( await this.storage.get(txKey))
           const tx = Record.readPacked(txKey, txValue)
           response = await this.network.createGenericMessage('tx-reply', tx.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('pending-block-header-request'):
           const pendingBlockId = this.ledger.validBlocks[0]
@@ -393,19 +392,19 @@ export default class Subspace extends EventEmitter {
           } else {
             response = await this.network.createGenericMessage('pending-block-header-reply', null)
           }
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('pending-tx-request'):
-          const pendingTxId = message.data
+          const pendingTxId = (message as IGenericMessage).data
           console.log(pendingTxId)
           const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)))
           const pendingTxRecord = Record.readUnpacked(pendingTxId, pendingTxValue)
           await pendingTxRecord.pack(null)
           response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         default:
-          this.emit(message.type, message.data)
+          this.emit(message.type, (message as IGenericMessage).data)
       }
     })
 
@@ -512,13 +511,23 @@ export default class Subspace extends EventEmitter {
     this.emit('disconnection')
   }
 
+  public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
   public async send(nodeId: string, message: IMessage): Promise<void>
+  public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
   public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-  public async send(nodeId: string, message: Uint8Array | IMessage, callback?: IMessageCallback) {
-    if (message instanceof Uint8Array) {
-      await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+  public async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
+    if (nodeId instanceof Uint8Array) {
+      if (message instanceof Uint8Array) {
+        await this.network.send(nodeId, message, callback)
+      } else {
+        await this.network.send(nodeId, message)
+      }
     } else {
-      await this.network.send(Buffer.from(nodeId, 'hex'), message)
+      if (message instanceof Uint8Array) {
+        await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+      } else {
+        await this.network.send(Buffer.from(nodeId, 'hex'), message)
+      }
     }
   }
 
