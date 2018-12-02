@@ -91,10 +91,12 @@ export class Message {
    *
    * @param binary
    * @param verify
+   *
+   * @throws {Error}
    */
   public static fromBinary(
     binary: Uint8Array,
-    verify: { (data: Uint8Array, signature: Uint8Array): Promise<boolean> }
+    verify: { (data: Uint8Array, publicKey: Uint8Array, signature: Uint8Array): Promise<boolean> }
   ): Message {
     if (binary.length < BASE_MESSAGE_HEADER_LENGTH) {
       throw new Error('Bad message length')
@@ -102,11 +104,20 @@ export class Message {
     const type = binary[0];
     const version = binary[1];
     const timestamp = Uint8ArrayToNumber64(binary.subarray(1 + 1, 1 + 1 + 8));
-    const pubicKey = binary.slice(1 + 1 + 8);
+    const publicKey = binary.slice(1 + 1 + 8);
     const signature = binary.slice(1 + 1 + 8 + 32);
     const payload = binary.slice(1 + 1 + 8 + 32 + 64);
 
-    return new Message(type, version, timestamp, pubicKey, payload, signature);
+    const dataToSign = new Uint8Array(1 + 1 + 8 + 32 + payload.length);
+    dataToSign.set([type, version]);
+    dataToSign.set(number64ToUint8Array(timestamp), 1 + 1);
+    dataToSign.set(publicKey, 1 + 1 + 8);
+    dataToSign.set(payload, 1 + 1 + 8 + 32);
+    if (!verify(dataToSign, publicKey, signature)) {
+      throw new Error('Bad message signature')
+    }
+
+    return new Message(type, version, timestamp, publicKey, payload, signature);
   }
 
   /**
