@@ -98,21 +98,31 @@ export class Message {
     binary: Uint8Array,
     verify: { (data: Uint8Array, publicKey: Uint8Array, signature: Uint8Array): Promise<boolean> }
   ): Message {
-    if (binary.length < BASE_MESSAGE_HEADER_LENGTH) {
+    const binaryLength = binary.length;
+    if (binaryLength < BASE_MESSAGE_HEADER_LENGTH) {
       throw new Error('Bad message length')
     }
     const type = binary[0];
     const version = binary[1];
-    const timestamp = Uint8ArrayToNumber64(binary.subarray(1 + 1, 1 + 1 + 8));
-    const publicKey = binary.slice(1 + 1 + 8);
-    const signature = binary.slice(1 + 1 + 8 + 32);
-    const payload = binary.slice(1 + 1 + 8 + 32 + 64);
+    const timestamp = Uint8ArrayToNumber64(
+      binary.subarray(
+        1 + 1,
+        1 + 1 + 8
+      )
+    );
+    const publicKey = binary.slice(
+      1 + 1 + 8,
+      1 + 1 + 8 + 32
+    );
+    const payload = binary.slice(
+      1 + 1 + 8 + 32,
+      binaryLength - 64
+    );
+    const signature = binary.slice(
+      binaryLength - 64
+    );
 
-    const dataToSign = new Uint8Array(1 + 1 + 8 + 32 + payload.length);
-    dataToSign.set([type, version]);
-    dataToSign.set(number64ToUint8Array(timestamp), 1 + 1);
-    dataToSign.set(publicKey, 1 + 1 + 8);
-    dataToSign.set(payload, 1 + 1 + 8 + 32);
+    const dataToSign = binary.subarray(0, binaryLength - 64);
     if (!verify(dataToSign, publicKey, signature)) {
       throw new Error('Bad message signature')
     }
@@ -126,13 +136,14 @@ export class Message {
    * It can later be reconstructed with `fromBinary` static method
    */
   public toBinary(): Uint8Array {
-    const binary = new Uint8Array(BASE_MESSAGE_HEADER_LENGTH + this.payload.length);
+    const payloadLength = this.payload.length;
+    const binary = new Uint8Array(BASE_MESSAGE_HEADER_LENGTH + payloadLength);
 
     binary.set([this.type, this.version]);
     binary.set(number64ToUint8Array(this.timestamp), 1 + 1);
     binary.set(this.publicKey, 1 + 1 + 8);
-    binary.set(this.signature, 1 + 1 + 8 + 32);
-    binary.set(this.payload, 1 + 1 + 8 + 32 + 64);
+    binary.set(this.payload, 1 + 1 + 8 + 32);
+    binary.set(this.signature, 1 + 1 + 8 + 32 + payloadLength);
     return binary;
   }
 }
