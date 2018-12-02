@@ -2,13 +2,11 @@ import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
 import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject} from '@subspace/network'
+import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback} from '@subspace/network'
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
-import { resolve } from 'url';
-import { IJoinMessage } from '@subspace/network/dist/interfaces';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -26,6 +24,54 @@ const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
 const DEFAULT_GATEWAY_NODES = [
   '772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:port:8125'
 ]
+
+const MESSAGE_TYPES = {
+  'block': 1,
+  'block-header-reply': 2,
+  'block-header-request': 3,
+
+  'chain-reply': 4,
+  'chain-request': 5,
+
+  'contract-reply': 6,
+  'contract-request': 7,
+
+  'del-reply': 8,
+  'del-request': 9,
+
+  'failure-reply': 10,
+
+  'gateway-reply': 11,
+  'gateway-request': 12,
+
+  'get-reply': 13,
+  'get-request': 14,
+
+  'last-block-id-reply': 15,
+  'last-block-id-request': 16,
+
+  'neighbor-request': 17,
+  'neighbor-reply': 18,
+
+  'pending-block-header-reply': 19,
+  'pending-block-header-request': 20,
+
+  'pending-tx-reply': 21,
+  'pending-tx-request': 22,
+
+  'put-reply': 23,
+  'put-request': 24,
+
+  'rev-reply': 25,
+  'rev-request': 26,
+
+  'shard-reply': 27,
+  'shard-request': 28,
+
+  'tx': 29,
+  'tx-reply': 30,
+  'tx-request': 31,
+}
 
 export default class Subspace extends EventEmitter {
 
@@ -67,7 +113,7 @@ export default class Subspace extends EventEmitter {
     // generate and send the request
     const message = await this.network.createGenericMessage(`${type}-request`, data)
     for (const host of hosts) {
-      await this.network.send(host, message)
+      await this.send(host, message)
     }
     const hostSet = new Set([...hosts])
     // add the requests and copy to pending
@@ -91,31 +137,31 @@ export default class Subspace extends EventEmitter {
   private async sendPutResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IPutResponse = { valid, reason, key}
     const message: IGenericMessage = await this.network.createGenericMessage('put-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject) {
     const response: IGetResponse = { valid, key, reason, record}
     const message = await this.network.createGenericMessage('get-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendRevResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IRevResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('rev-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendDelResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IDelResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('del-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendContractResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IContractResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('contract-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private getRequestSize(type: string, recordId: string) {
@@ -241,7 +287,7 @@ export default class Subspace extends EventEmitter {
     })
 
 
-    this.network.on('message', async (message) => {
+    this.network.on('message', async (message, callback) => {
       console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
@@ -265,12 +311,12 @@ export default class Subspace extends EventEmitter {
         case('peer-added'):
           peer = message.data
           connection = this.network.getConnectionFromId(message.sender)
-          connection.peers.push(peer)
+          connection.peers.push(Buffer.from(peer, 'hex'))
           break
         case('peer-removed'):
           peer = message.data
           connection = this.network.getConnectionFromId(message.sender)
-          const index = connection.peers.indexOf(peer)
+          const index = connection.peers.indexOf(Buffer.from(peer, 'hex'))
           connection.peers.splice(index, 1)
           break
         case('tx'):
@@ -433,8 +479,8 @@ export default class Subspace extends EventEmitter {
       // console.log('connecting to gateways')
 
       for (const gateway of this.network.gatewayNodes) {
-        if(!peers.includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort)
+        if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
+          await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
           const connectedGatewayCount = this.network.getGateways().length
           if (connectedGatewayCount === this.gatewayCount) {
             this.emit('join')
@@ -457,17 +503,23 @@ export default class Subspace extends EventEmitter {
 
   public async connect(nodeId: string) {
     // connect to another node directly as a peer
-    await this.network.connect(nodeId)
+    await this.network.connect(Buffer.from(nodeId, 'hex'))
   }
 
   public async disconnect(nodeId: string) {
     // disconnect from another node as a peer
-    await this.network.disconnect(nodeId)
+    await this.network.disconnect(Buffer.from(nodeId, 'hex'))
     this.emit('disconnection')
   }
 
-  public async send(nodeId: string, message: any) {
-    await this.network.send(nodeId, message)
+  public async send(nodeId: string, message: IMessage): Promise<void>
+  public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  public async send(nodeId: string, message: Uint8Array | IMessage, callback?: IMessageCallback) {
+    if (message instanceof Uint8Array) {
+      await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+    } else {
+      await this.network.send(Buffer.from(nodeId, 'hex'), message)
+    }
   }
 
   // ledger tx methods
@@ -1098,7 +1150,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('last-block-id-request')
       const gateway = this.network.getGateways()[0]
-      await this.network.send(gateway, request)
+      await this.send(gateway, request)
 
       this.once('last-block-id-reply', async (blockId: string) => {
         resolve(blockId)
@@ -1210,7 +1262,7 @@ export default class Subspace extends EventEmitter {
       console.log('block-header-request for: ', blockId)
       const request = await this.network.createGenericMessage('block-header-request', blockId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('block-header-reply', async (block: {key: string, value: Record['value']}) => {
         if (block) {
@@ -1233,7 +1285,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('tx-request', txId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('tx-reply', async (tx: {key: string, value: Record['value']}) => {
         if (tx) {
@@ -1347,7 +1399,7 @@ export default class Subspace extends EventEmitter {
       // rpc method to fetch the most valid pending block from a gateway node
       const request = await this.network.createGenericMessage('pending-block-header-request')
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('pending-block-header-reply', async (pendingBlock: {key: string, value: Record['value']}) => {
         if (pendingBlock) {
@@ -1369,7 +1421,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('pending-tx-request', txId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
         const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
@@ -1392,7 +1444,7 @@ export default class Subspace extends EventEmitter {
       const pledgeTxId = this.wallet.profile.pledge.pledgeTx
       const request: INeighborRequest = { pledgeTxId }
       const requestMessage = await this.network.createGenericMessage('neighbor-request', request)
-      await this.network.send(nodeId, requestMessage)
+      await this.send(nodeId, requestMessage)
 
       this.on('neighbor-request', async (message: IGenericMessage) => {
         const response: INeighborResponse = {
@@ -1406,7 +1458,7 @@ export default class Subspace extends EventEmitter {
         if (!requestTest) {
           response.reason = requestTest.reason
           const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
-          await this.network.send(message.sender, responseMessage)
+          await this.send(message.sender, responseMessage)
         }
 
         // am I a valid neighbor for this host?
@@ -1416,7 +1468,7 @@ export default class Subspace extends EventEmitter {
         if (!hostNeighbors.includes(profile.id)) {
           response.reason = 'invalid neighbor request, not a valid neighbor'
           const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
-          await this.network.send(message.sender, responseMessage)
+          await this.send(message.sender, responseMessage)
         }
 
         // add to neighbors
@@ -1432,7 +1484,7 @@ export default class Subspace extends EventEmitter {
         response.valid = true
         response.proof.signature = await crypto.sign(response.proof, profile.privateKey)
         const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
-        await this.network.send(message.sender, responseMessage)
+        await this.send(message.sender, responseMessage)
       })
 
       this.on('neighbor-reply', (message: IGenericMessage) => {
@@ -1474,13 +1526,13 @@ export default class Subspace extends EventEmitter {
         const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved)
         if (!shards.includes(request.shardId)) {
           const responseMessage = await this.network.createGenericMessage('shard-reply', response)
-          this.network.send(message.sender, responseMessage)
+          this.send(message.sender, responseMessage)
         }
 
         const entry = this.tracker.getEntry(message.sender)
         if (!entry || entry.status) {
           const responseMessage = await this.network.createGenericMessage('shard-reply', response)
-          this.network.send(message.sender, responseMessage)
+          this.send(message.sender, responseMessage)
         }
 
         // compute hosts for shard with the requesting host temporarilty set to active
@@ -1493,7 +1545,7 @@ export default class Subspace extends EventEmitter {
         // see if they are both closer than me and if I have been evicted from shard
         if (!hosts.includes(message.sender) || hosts.includes(profile.id)) {
           const responseMessage = await this.network.createGenericMessage('shard-reply', response)
-          this.network.send(message.sender, responseMessage)
+          this.send(message.sender, responseMessage)
         }
 
         // valid request
@@ -1520,7 +1572,7 @@ export default class Subspace extends EventEmitter {
 
         // need to create an unsigned message, should really be sent as a stream
         const responseMessage = await this.network.createGenericMessage('shard-reply', response)
-        this.network.send(message.sender, responseMessage)
+        this.send(message.sender, responseMessage)
       })
 
       this.on('shard-reply', async (message: IGenericMessage) => {
@@ -1661,7 +1713,7 @@ export default class Subspace extends EventEmitter {
     const message = await this.tracker.createLeaveMessage()
     await this.network.gossip(message)
     this.isHosting = false
-    this.neighbors.clear
+    this.neighbors.clear()
     await this.network.leaveHosts()
 
     // on receipt of leave message by each host
@@ -1676,7 +1728,7 @@ export default class Subspace extends EventEmitter {
         const entry = this.tracker.getEntry(message.sender)
         if (entry && entry.status) {
           // valid leave, gossip back out
-          await this.network.gossip(message, message.sender)
+          await this.network.gossip(message, Buffer.from(message.sender, 'hex'))
 
           // see if I need to replicate any shards for this host
           this.replicateShards(message.sender)
@@ -1723,7 +1775,7 @@ export default class Subspace extends EventEmitter {
                 // start the failure message
                 const failureMessage = await this.tracker.createFailureMessage(nodeId)
                 for (const neighbor of neighbors) {
-                  await this.network.send(neighbor, failureMessage)
+                  await this.send(neighbor, failureMessage)
                 }
               }
             }, timeout * 1000)
@@ -1743,7 +1795,7 @@ export default class Subspace extends EventEmitter {
           this.failedNeighbors.set(failure.nodeId, true)
           const response = await this.tracker.signFailureMessage(failure)
           const responseMessage = await this.network.createGenericMessage('failure-reply', response)
-          this.network.send(message.sender, responseMessage)
+          this.send(message.sender, responseMessage)
         }
       }
     })
@@ -1798,7 +1850,7 @@ export default class Subspace extends EventEmitter {
           this.tracker.updateEntry(failure)
 
           // continue to spread the failure message
-          this.network.gossip(message, message.sender)
+          this.network.gossip(message, Buffer.from(message.sender, 'hex'))
 
           // remove the node from pending failure if I am a neighbor
           if (this.pendingFailures.has(failure.nodeId)) {
