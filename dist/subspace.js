@@ -250,13 +250,13 @@ class Subspace extends events_1.default {
                 // and are ready to start farming
                 case ('peer-added'):
                     peer = message.data;
-                    connection = this.network.getConnectionFromId(message.sender);
-                    connection.peers.push(peer);
+                    connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
+                    connection.peers.push(Buffer.from(peer, 'hex'));
                     break;
                 case ('peer-removed'):
                     peer = message.data;
-                    connection = this.network.getConnectionFromId(message.sender);
-                    const index = connection.peers.indexOf(peer);
+                    connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
+                    const index = connection.peers.indexOf(Buffer.from(peer, 'hex'));
                     connection.peers.splice(index, 1);
                     break;
                 case ('tx'):
@@ -269,7 +269,7 @@ class Subspace extends events_1.default {
                             const txTest = await this.ledger.onTx(txRecord);
                             if (txTest.valid) {
                                 const txMessage = await this.network.createGenericMessage('tx', message.data);
-                                this.network.gossip(txMessage, message.sender);
+                                this.network.gossip(txMessage, Buffer.from(message.sender, 'hex'));
                                 this.emit('tx', txRecord);
                             }
                         }
@@ -287,7 +287,7 @@ class Subspace extends events_1.default {
                         }
                         const blockMessage = await this.network.createGenericMessage('block', message.data);
                         // should not be returned to the same node
-                        this.network.gossip(blockMessage, message.sender);
+                        this.network.gossip(blockMessage, Buffer.from(message.sender, 'hex'));
                         this.emit('block', blockRecord);
                     }
                     break;
@@ -402,7 +402,7 @@ class Subspace extends events_1.default {
             // console.log('connecting to gateways')
             for (const gateway of this.network.gatewayNodes) {
                 if (!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-                    await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort);
+                    await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
                     const connectedGatewayCount = this.network.getGateways().length;
                     if (connectedGatewayCount === this.gatewayCount) {
                         this.emit('join');
@@ -420,32 +420,30 @@ class Subspace extends events_1.default {
     }
     async connect(nodeId) {
         // connect to another node directly as a peer
-        await this.network.connect(nodeId);
+        await this.network.connect(Buffer.from(nodeId, 'hex'));
     }
     async disconnect(nodeId) {
         // disconnect from another node as a peer
-        await this.network.disconnect(nodeId);
+        await this.network.disconnect(Buffer.from(nodeId, 'hex'));
         this.emit('disconnection');
     }
-    // public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
-    // public async send(nodeId: string, message: IMessage): Promise<void>
-    // public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-    // public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-    async send(nodeId, message) {
-        // if (nodeId instanceof Uint8Array) {
-        //   if (message instanceof Uint8Array) {
-        //     await this.network.send(nodeId, message, callback)
-        //   } else {
-        //     await this.network.send(nodeId, message)
-        //   }
-        // } else {
-        //   if (message instanceof Uint8Array) {
-        //     await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
-        //   } else {
-        //     await this.network.send(Buffer.from(nodeId, 'hex'), message)
-        //   }
-        // }
-        await this.network.send(nodeId, message);
+    async send(nodeId, message, callback) {
+        if (nodeId instanceof Uint8Array) {
+            if (message instanceof Uint8Array) {
+                await this.network.send(nodeId, message, callback);
+            }
+            else {
+                await this.network.send(nodeId, message);
+            }
+        }
+        else {
+            if (message instanceof Uint8Array) {
+                await this.network.send(Buffer.from(nodeId, 'hex'), message, callback);
+            }
+            else {
+                await this.network.send(Buffer.from(nodeId, 'hex'), message);
+            }
+        }
     }
     // ledger tx methods
     async seedPlot(size = DEFAULT_HOST_PLEDGE) {
@@ -1455,7 +1453,7 @@ class Subspace extends events_1.default {
                 const entry = this.tracker.getEntry(message.sender);
                 if (entry && entry.status) {
                     // valid leave, gossip back out
-                    await this.network.gossip(message, message.sender);
+                    await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                     // see if I need to replicate any shards for this host
                     this.replicateShards(message.sender);
                     // deactivate the node in the tracker after computing shards
@@ -1562,7 +1560,7 @@ class Subspace extends events_1.default {
                     // deactivate the node in the tracker
                     this.tracker.updateEntry(failure);
                     // continue to spread the failure message
-                    this.network.gossip(message, message.sender);
+                    this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                     // remove the node from pending failure if I am a neighbor
                     if (this.pendingFailures.has(failure.nodeId)) {
                         this.pendingFailures.delete(failure.nodeId);
