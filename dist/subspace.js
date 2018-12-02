@@ -251,12 +251,12 @@ class Subspace extends events_1.default {
                 case ('peer-added'):
                     peer = message.data;
                     connection = this.network.getConnectionFromId(message.sender);
-                    connection.peers.push(Buffer.from(peer, 'hex'));
+                    connection.peers.push(peer);
                     break;
                 case ('peer-removed'):
                     peer = message.data;
                     connection = this.network.getConnectionFromId(message.sender);
-                    const index = connection.peers.indexOf(Buffer.from(peer, 'hex'));
+                    const index = connection.peers.indexOf(peer);
                     connection.peers.splice(index, 1);
                     break;
                 case ('tx'):
@@ -296,14 +296,13 @@ class Subspace extends events_1.default {
                     await this.send(message.sender, response);
                     break;
                 case ('chain-request'):
-                    const chain = this.ledger.chain;
-                    response = await this.network.createGenericMessage('chain-reply', chain);
-                    await this.send(message.sender, response);
+                    const payload = Buffer.from(JSON.stringify(this.ledger.chain));
+                    await this.send(message.sender, payload);
                     break;
                 case ('last-block-id-request'):
                     const lastBlockId = this.ledger.getLastBlockId();
                     response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId);
-                    await this.network.send(message.sender, response);
+                    await this.send(message.sender, response);
                     break;
                 case ('block-header-request'):
                     const blockKey = message.data;
@@ -311,14 +310,14 @@ class Subspace extends events_1.default {
                     blockValue.content = JSON.stringify(blockValue.content);
                     const block = database_1.Record.readPacked(blockKey, blockValue);
                     response = await this.network.createGenericMessage('block-header-reply', block.getRecord());
-                    await this.network.send(message.sender, response);
+                    await this.send(message.sender, response);
                     break;
                 case ('tx-request'):
                     const txKey = message.data;
                     const txValue = JSON.parse(await this.storage.get(txKey));
                     const tx = database_1.Record.readPacked(txKey, txValue);
                     response = await this.network.createGenericMessage('tx-reply', tx.getRecord());
-                    await this.network.send(message.sender, response);
+                    await this.send(message.sender, response);
                     break;
                 case ('pending-block-header-request'):
                     const pendingBlockId = this.ledger.validBlocks[0];
@@ -331,7 +330,7 @@ class Subspace extends events_1.default {
                     else {
                         response = await this.network.createGenericMessage('pending-block-header-reply', null);
                     }
-                    await this.network.send(message.sender, response);
+                    await this.send(message.sender, response);
                     break;
                 case ('pending-tx-request'):
                     const pendingTxId = message.data;
@@ -340,7 +339,7 @@ class Subspace extends events_1.default {
                     const pendingTxRecord = database_1.Record.readUnpacked(pendingTxId, pendingTxValue);
                     await pendingTxRecord.pack(null);
                     response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord());
-                    await this.network.send(message.sender, response);
+                    await this.send(message.sender, response);
                     break;
                 default:
                     this.emit(message.type, message.data);
@@ -403,7 +402,7 @@ class Subspace extends events_1.default {
             // console.log('connecting to gateways')
             for (const gateway of this.network.gatewayNodes) {
                 if (!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-                    await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
+                    await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort);
                     const connectedGatewayCount = this.network.getGateways().length;
                     if (connectedGatewayCount === this.gatewayCount) {
                         this.emit('join');
@@ -421,20 +420,32 @@ class Subspace extends events_1.default {
     }
     async connect(nodeId) {
         // connect to another node directly as a peer
-        await this.network.connect(Buffer.from(nodeId, 'hex'));
+        await this.network.connect(nodeId);
     }
     async disconnect(nodeId) {
         // disconnect from another node as a peer
-        await this.network.disconnect(Buffer.from(nodeId, 'hex'));
+        await this.network.disconnect(nodeId);
         this.emit('disconnection');
     }
-    async send(nodeId, message, callback) {
-        if (message instanceof Uint8Array) {
-            await this.network.send(Buffer.from(nodeId, 'hex'), message, callback);
-        }
-        else {
-            await this.network.send(Buffer.from(nodeId, 'hex'), message);
-        }
+    // public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
+    // public async send(nodeId: string, message: IMessage): Promise<void>
+    // public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+    // public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+    async send(nodeId, message) {
+        // if (nodeId instanceof Uint8Array) {
+        //   if (message instanceof Uint8Array) {
+        //     await this.network.send(nodeId, message, callback)
+        //   } else {
+        //     await this.network.send(nodeId, message)
+        //   }
+        // } else {
+        //   if (message instanceof Uint8Array) {
+        //     await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+        //   } else {
+        //     await this.network.send(Buffer.from(nodeId, 'hex'), message)
+        //   }
+        // }
+        await this.network.send(nodeId, message);
     }
     // ledger tx methods
     async seedPlot(size = DEFAULT_HOST_PLEDGE) {
@@ -1444,7 +1455,7 @@ class Subspace extends events_1.default {
                 const entry = this.tracker.getEntry(message.sender);
                 if (entry && entry.status) {
                     // valid leave, gossip back out
-                    await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
+                    await this.network.gossip(message, message.sender);
                     // see if I need to replicate any shards for this host
                     this.replicateShards(message.sender);
                     // deactivate the node in the tracker after computing shards
@@ -1551,7 +1562,7 @@ class Subspace extends events_1.default {
                     // deactivate the node in the tracker
                     this.tracker.updateEntry(failure);
                     // continue to spread the failure message
-                    this.network.gossip(message, Buffer.from(message.sender, 'hex'));
+                    this.network.gossip(message, message.sender);
                     // remove the node from pending failure if I am a neighbor
                     if (this.pendingFailures.has(failure.nodeId)) {
                         this.pendingFailures.delete(failure.nodeId);

@@ -2,7 +2,7 @@ import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
 import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback} from '@subspace/network'
+import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject} from '@subspace/network'
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
@@ -287,7 +287,7 @@ export default class Subspace extends EventEmitter {
     })
 
 
-    this.network.on('message', async (message: IMessage, callback) => {
+    this.network.on('message', async (message: any, callback) => {
       console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
@@ -310,13 +310,13 @@ export default class Subspace extends EventEmitter {
 
         case('peer-added'):
           peer = (message as IGenericMessage).data
-          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
-          connection.peers.push(Buffer.from(peer, 'hex'))
+          connection = this.network.getConnectionFromId(message.sender)
+          connection.peers.push(peer)
           break
         case('peer-removed'):
           peer = (message as IGenericMessage).data
-          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
-          const index = connection.peers.indexOf(Buffer.from(peer, 'hex'))
+          connection = this.network.getConnectionFromId(message.sender)
+          const index = connection.peers.indexOf(peer)
           connection.peers.splice(index, 1)
           break
         case('tx'):
@@ -329,7 +329,7 @@ export default class Subspace extends EventEmitter {
               const txTest = await this.ledger.onTx(txRecord)
               if (txTest.valid) {
                 const txMessage = await this.network.createGenericMessage('tx', (message as IGenericMessage).data)
-                this.network.gossip(txMessage, Buffer.from(message.sender, 'hex'))
+                this.network.gossip(txMessage, message.sender)
                 this.emit('tx', txRecord)
               }
             }
@@ -350,7 +350,7 @@ export default class Subspace extends EventEmitter {
             const blockMessage = await this.network.createGenericMessage('block', (message as IGenericMessage).data)
             // should not be returned to the same node
 
-            this.network.gossip(blockMessage, Buffer.from(message.sender, 'hex'))
+            this.network.gossip(blockMessage, message.sender)
             this.emit('block', blockRecord)
           }
           break
@@ -479,7 +479,7 @@ export default class Subspace extends EventEmitter {
 
       for (const gateway of this.network.gatewayNodes) {
         if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-          await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
+          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort)
           const connectedGatewayCount = this.network.getGateways().length
           if (connectedGatewayCount === this.gatewayCount) {
             this.emit('join')
@@ -502,33 +502,34 @@ export default class Subspace extends EventEmitter {
 
   public async connect(nodeId: string) {
     // connect to another node directly as a peer
-    await this.network.connect(Buffer.from(nodeId, 'hex'))
+    await this.network.connect(nodeId)
   }
 
   public async disconnect(nodeId: string) {
     // disconnect from another node as a peer
-    await this.network.disconnect(Buffer.from(nodeId, 'hex'))
+    await this.network.disconnect(nodeId)
     this.emit('disconnection')
   }
 
-  public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
-  public async send(nodeId: string, message: IMessage): Promise<void>
-  public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-  public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-  public async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
-    if (nodeId instanceof Uint8Array) {
-      if (message instanceof Uint8Array) {
-        await this.network.send(nodeId, message, callback)
-      } else {
-        await this.network.send(nodeId, message)
-      }
-    } else {
-      if (message instanceof Uint8Array) {
-        await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
-      } else {
-        await this.network.send(Buffer.from(nodeId, 'hex'), message)
-      }
-    }
+  // public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
+  // public async send(nodeId: string, message: IMessage): Promise<void>
+  // public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  // public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  public async send(nodeId: string, message: Uint8Array | any) {
+    // if (nodeId instanceof Uint8Array) {
+    //   if (message instanceof Uint8Array) {
+    //     await this.network.send(nodeId, message, callback)
+    //   } else {
+    //     await this.network.send(nodeId, message)
+    //   }
+    // } else {
+    //   if (message instanceof Uint8Array) {
+    //     await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+    //   } else {
+    //     await this.network.send(Buffer.from(nodeId, 'hex'), message)
+    //   }
+    // }
+    await this.network.send(nodeId, message)
   }
 
   // ledger tx methods
@@ -1737,7 +1738,7 @@ export default class Subspace extends EventEmitter {
         const entry = this.tracker.getEntry(message.sender)
         if (entry && entry.status) {
           // valid leave, gossip back out
-          await this.network.gossip(message, Buffer.from(message.sender, 'hex'))
+          await this.network.gossip(message, message.sender)
 
           // see if I need to replicate any shards for this host
           this.replicateShards(message.sender)
@@ -1859,7 +1860,7 @@ export default class Subspace extends EventEmitter {
           this.tracker.updateEntry(failure)
 
           // continue to spread the failure message
-          this.network.gossip(message, Buffer.from(message.sender, 'hex'))
+          this.network.gossip(message, message.sender)
 
           // remove the node from pending failure if I am a neighbor
           if (this.pendingFailures.has(failure.nodeId)) {
