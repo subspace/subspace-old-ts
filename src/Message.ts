@@ -81,8 +81,8 @@ export class Message {
       version,
       timestamp,
       publicKey,
-      signature,
-      payload
+      payload,
+      signature
     );
   }
 
