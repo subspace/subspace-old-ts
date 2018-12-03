@@ -61,7 +61,7 @@ export default class Subspace extends EventEmitter {
     seedPlot(size?: number): Promise<void>;
     getBalance(address?: string): number;
     sendCredits(amount: number, address: string): Promise<Record>;
-    pledgeSpace(interval: number): Promise<Record>;
+    pledgeSpace(interval?: number): Promise<Record>;
     private setPaymentTimer;
     private requestHostPayment;
     reserveSpace(name?: string, email?: string, passphrase?: string, spaceReserved?: number, ttl?: number, replicationFactor?: number): Promise<void>;
@@ -89,8 +89,8 @@ export default class Subspace extends EventEmitter {
     private getPendingTx;
     stopFarmer(): void;
     connectToNeighbor(nodeId: string): Promise<void>;
+    joinHosts(count: number): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
-    joinHosts(): Promise<void>;
     private replicateShards;
     leaveHosts(): Promise<void>;
     onHostFailure(): Promise<void>;

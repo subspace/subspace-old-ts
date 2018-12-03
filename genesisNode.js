@@ -15,15 +15,16 @@ const init = async () => {
     })
 
     subspace.on('connection', (connection) => {
-      console.log('Connected to a new node:', connection)
+      console.log('\nConnected to a new node:', connection)
     })
 
     subspace.on('join', () => {
       console.log('Joined the Network')
     })
 
-    subspace.on('block', block => {
-      // console.log(block)
+    subspace.on('applied-block', block => {
+      console.log('Applied block: ', block.key)
+      // console.log(subspace.ledger.clearedBalances)
     })
 
     await subspace.init('gateway', true)   
@@ -35,13 +36,36 @@ const init = async () => {
 
     await subspace.join(8125, '127.0.0.1')
 
-    await subspace.startFarmer(5000)
+    await subspace.startFarmer(10000)
     console.log('started farming')
+
+    // start interval
+
+    // create block and gossip
+
+    // create tx and gossip 
+
+    // apply block 
+
+    // setTimeout(() => {
+    //   console.log('sending test credits')
+    //   subspace.sendCredits(10, 'e527dc91388f3dfee3aeb2c13808b3adfae9d2bb57b8f25b3c7333fb5d8b6e7f')
+    // }, 15000)
+
+    // send credits test
+
+    // after timeout, send credits to another host
+    // then show balances 
 
     // join hosts 
 
-    // await subspace.joinHosts()
-    // console.log('joined hosts')
+    setTimeout( async () => {
+      await subspace.joinHosts(0)
+      console.log('joined hosts')
+      console.log('\n Joined ! \n')
+    }, 7000)
+
+    
    
     // setTimeout(async () => {
 
