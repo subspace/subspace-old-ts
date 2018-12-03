@@ -1405,6 +1405,18 @@ class Subspace extends events_1.default {
         // after seeding and pledging space, join the host network 
         // should add a delay or ensure the tx has been anchored in the ledger 
         // assumes the host already has an entry into the tracker
+        // first host
+        // bootstraps an empty tracker
+        // seeds plot and pledges to the ledger
+        // adds their own entry 
+        // second host
+        // fetches the tracker
+        // seed plot and pledges space
+        // connects to first host as neighbor 
+        // receives the neighbor proof
+        // gossips join proof as single neighbor proof
+        // third host
+        // fourth host 
         const pledge = this.wallet.profile.pledge;
         if (!pledge) {
             throw new Error('Cannot join host network without first submitting a pledge tx');
