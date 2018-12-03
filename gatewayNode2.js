@@ -10,15 +10,16 @@ const init = async () => {
     })
 
     subspace.on('connection', (connection) => {
-      console.log('Connected to a new node: ', connection)
+      console.log('\nConnected to a new node: ', connection)
     })
 
     subspace.on('join', () => {
       console.log('Joined the Network')
     })
 
-    subspace.on('block', block => {
-      // console.log(block)
+    subspace.on('applied-block', block => {
+      console.log('Applied block: ', block.key)
+      // console.log(subspace.ledger.clearedBalances)
     })
 
     await subspace.init('gateway', true, 'gw2')   
@@ -31,9 +32,22 @@ const init = async () => {
 
     await subspace.join(8127, '127.0.0.1')
 
+    console.log('joined the network')
 
-    await subspace.startFarmer(5000)
+    await subspace.startFarmer(10000)
     console.log('started farming')
+
+    setTimeout( async () => {
+      
+      await subspace.pledgeSpace()
+      console.log('pledged space')
+
+      setTimeout( async () => {
+        await subspace.joinHosts(2)
+        console.log('\n Joined ! \n')
+      }, 15000)
+
+    }, 7000)
 
 
     // await subspace.leave()
