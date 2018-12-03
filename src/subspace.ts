@@ -2,14 +2,11 @@ import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
 import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject} from '@subspace/network'
+import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback} from '@subspace/network'
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
-import { resolve } from 'url';
-import { IJoinMessage } from '@subspace/network/dist/interfaces';
-import { IEntryObject } from '@subspace/tracker/dist/interfaces';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -28,6 +25,54 @@ const DEFAULT_GATEWAY_NODES = [
   '772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:port:8125'
 ]
 
+const MESSAGE_TYPES = {
+  'block': 1,
+  'block-header-reply': 2,
+  'block-header-request': 3,
+
+  'chain-reply': 4,
+  'chain-request': 5,
+
+  'contract-reply': 6,
+  'contract-request': 7,
+
+  'del-reply': 8,
+  'del-request': 9,
+
+  'failure-reply': 10,
+
+  'gateway-reply': 11,
+  'gateway-request': 12,
+
+  'get-reply': 13,
+  'get-request': 14,
+
+  'last-block-id-reply': 15,
+  'last-block-id-request': 16,
+
+  'neighbor-request': 17,
+  'neighbor-reply': 18,
+
+  'pending-block-header-reply': 19,
+  'pending-block-header-request': 20,
+
+  'pending-tx-reply': 21,
+  'pending-tx-request': 22,
+
+  'put-reply': 23,
+  'put-request': 24,
+
+  'rev-reply': 25,
+  'rev-request': 26,
+
+  'shard-reply': 27,
+  'shard-request': 28,
+
+  'tx': 29,
+  'tx-reply': 30,
+  'tx-request': 31,
+}
+
 export default class Subspace extends EventEmitter {
 
   public storage: Storage
@@ -36,12 +81,12 @@ export default class Subspace extends EventEmitter {
   public tracker: Tracker
   public database: DataBase
   public ledger: Ledger
-  
+
   public isGateway = false
   public isHosting = false
   public env = ''
   public storageAdapter = ''
-  
+
   public pendingRequests: Map<string, Set<string>> = new Map()
   public messages: Map<string, number> = new Map()
   public neighbors: Set <string> = new Set()
@@ -49,11 +94,11 @@ export default class Subspace extends EventEmitter {
   public failedNeighbors: Map<string, boolean> = new Map()
   public pendingFailures: Map<string, IPendingFailure> = new Map()
   public evictedShards: Map <string, Set<string>> = new Map()
-  
+
   constructor(
-    public bootstrap = false, 
+    public bootstrap = false,
     public gatewayNodes = DEFAULT_GATEWAY_NODES,
-    public gatewayCount = DEFAULT_GATEWAY_COUNT, 
+    public gatewayCount = DEFAULT_GATEWAY_COUNT,
     public delegated = false,
     public name = DEFAULT_PROFILE_NAME,
     public email = DEFAULT_PROFILE_EMAIL,
@@ -68,12 +113,11 @@ export default class Subspace extends EventEmitter {
     // generate and send the request
     const message = await this.network.createGenericMessage(`${type}-request`, data)
     for (const host of hosts) {
-      await this.network.send(host, message)
+      await this.send(host, message)
     }
     const hostSet = new Set([...hosts])
     // add the requests and copy to pending
     this.pendingRequests.set(crypto.getHash(type + recordId), hostSet)
-    this.pendingRequests.set(crypto.getHash(recordId + type), hostSet)
   }
 
   private async removeRequest(type: string, recordId: string, host: string) {
@@ -84,41 +128,40 @@ export default class Subspace extends EventEmitter {
   }
 
   private resolveRequest(type: string, recordId: string) {
-    this.pendingRequests.delete(crypto.getHash(type + recordId))
-    const copyKey = crypto.getHash(recordId + type)
-    const hosts = this.pendingRequests.get(copyKey)
-    this.pendingRequests.delete(copyKey)
+    const key = crypto.getHash(type + recordId)
+    const hosts = this.pendingRequests.get(key)
+    this.pendingRequests.delete(key)
     return hosts
   }
-  
+
   private async sendPutResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IPutResponse = { valid, reason, key}
     const message: IGenericMessage = await this.network.createGenericMessage('put-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject) {
     const response: IGetResponse = { valid, key, reason, record}
     const message = await this.network.createGenericMessage('get-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendRevResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IRevResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('rev-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendDelResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IDelResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('del-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private async sendContractResponse(client: string, valid: boolean, reason: string, key: string) {
     const response: IContractResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('contract-reply', response)
-    this.network.send(client, message)
+    this.send(client, message)
   }
 
   private getRequestSize(type: string, recordId: string) {
@@ -136,11 +179,11 @@ export default class Subspace extends EventEmitter {
       })
     }, 600000)
   }
-  
+
   public async initEnv() {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
-      this.env = 'browser' 
+      this.env = 'browser'
     } else if (await this.network.isIpPublic()) {
       console.log('Gateway env detected')
       this.env = 'gateway'
@@ -150,7 +193,7 @@ export default class Subspace extends EventEmitter {
       this.env = 'private-host'
     }
   }
-  
+
   public async init(env: string, gateway: boolean, path?: string): Promise<void> {
 
     this.isGateway = gateway
@@ -158,7 +201,7 @@ export default class Subspace extends EventEmitter {
 
     // determine the node env
     // await this.initEnv()
-    
+
 
     // determine the storage adapter
     if (this.env === 'browser') {
@@ -173,7 +216,7 @@ export default class Subspace extends EventEmitter {
       // if no profile, will create a new default profile
       // if args, will create a new profile from args
       // if existing profile, will load from disk
-    
+
 
     this.wallet = new Wallet(this.storage)
     const walletOptions = {
@@ -184,7 +227,7 @@ export default class Subspace extends EventEmitter {
     await this.wallet.init(walletOptions)
     this.setPaymentTimer()
 
-    // ledger 
+    // ledger
     this.ledger = new Ledger(this.storage, this.wallet)
 
     this.ledger.on('block-solution', async (block: any) => {
@@ -225,13 +268,13 @@ export default class Subspace extends EventEmitter {
 
     // database
     this.database = new DataBase(this.wallet, this.storage)
-    
+
     // network
     this.network = new Network(
-      this.bootstrap, 
-      this.gatewayNodes, 
-      this.gatewayCount, 
-      this.delegated, 
+      this.bootstrap,
+      this.gatewayNodes,
+      this.gatewayCount,
+      this.delegated,
       this.wallet,
       this.tracker,
       this.env
@@ -246,7 +289,7 @@ export default class Subspace extends EventEmitter {
 
     this.network.on('disconnection', (connection: IConnectionObject) => {
       this.emit('disconnection', connection.nodeId)
-      const nodeId = connection.nodeId
+      const nodeId = Buffer.from(connection.nodeId).toString('hex')
 
       // if hosting, listen for and report on failed hosts
       if (this.isHosting) {
@@ -280,7 +323,7 @@ export default class Subspace extends EventEmitter {
                 // start the failure message 
                 const failureMessage = await this.tracker.createFailureMessage(nodeId)
                 for (const neighbor of neighbors) {
-                  await this.network.send(neighbor, failureMessage)
+                  await this.network.send(connection.nodeId, failureMessage)
                 }
               }
             }, timeout * 1000)
@@ -312,8 +355,9 @@ export default class Subspace extends EventEmitter {
 
 
     })
-    
-    this.network.on('message', async (message) => {
+
+
+    this.network.on('message', async (message: IMessage, callback) => {
       console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
@@ -321,61 +365,61 @@ export default class Subspace extends EventEmitter {
 
       // prevent revalidating and regoissiping the same messages
       if (['block', 'solution'].includes(message.type)) {
-        const messagedId = crypto.getHash(JSON.stringify(message.data))
-        if (this.messages.has(messagedId)) { 
+        const messagedId = crypto.getHash(JSON.stringify((message as IGenericMessage).data))
+        if (this.messages.has(messagedId)) {
           return
         }
         this.messages.set(messagedId, Date.now())
       }
-  
-      let response, peer: string, connection: IConnectionObject, entry: IEntryObject, responseMessage: IGenericMessage, failure: IFailureObject = null
+
+      let response, peer: string, connection: IConnectionObject = null
       switch(message.type) {
 
-        // don't validate tx and blocks until you have the full ledger 
-        // and are ready to start farming 
+        // don't validate tx and blocks until you have the full ledger
+        // and are ready to start farming
 
         case('peer-added'):
-          peer = message.data
-          connection = this.network.getConnectionFromId(message.sender)
-          connection.peers.push(peer)
+          peer = (message as IGenericMessage).data
+          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
+          connection.peers.push(Buffer.from(peer, 'hex'))
           break
         case('peer-removed'):
-          peer = message.data
-          connection = this.network.getConnectionFromId(message.sender)
-          const index = connection.peers.indexOf(peer)
+          peer = (message as IGenericMessage).data
+          connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
+          const index = connection.peers.indexOf(Buffer.from(peer, 'hex'))
           connection.peers.splice(index, 1)
           break
         case('tx'):
           if (this.ledger.hasLedger) {
             // first ensure we have a valid SSDB record wrapping the tx
-            const txRecord = Record.readUnpacked(message.data.key, message.data.value) 
+            const txRecord = Record.readUnpacked((message as IGenericMessage).data.key, (message as IGenericMessage).data.value)
             const txRecordTest = await txRecord.isValid()
             if (txRecordTest.valid) {
               // then validate the tx data
               const txTest = await this.ledger.onTx(txRecord)
               if (txTest.valid) {
-                const txMessage = await this.network.createGenericMessage('tx', message.data)
-                this.network.gossip(txMessage, message.sender)
+                const txMessage = await this.network.createGenericMessage('tx', (message as IGenericMessage).data)
+                this.network.gossip(txMessage, Buffer.from(message.sender, 'hex'))
                 this.emit('tx', txRecord)
               }
-            }       
+            }
           }
           break
         case('block'):
           if (this.ledger.hasLedger) {
-            const blockRecord = Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)))
+            const blockRecord = Record.readPacked((message as IGenericMessage).data._key, JSON.parse(JSON.stringify((message as IGenericMessage).data._value)))
             await blockRecord.unpack(null)
             console.log('Received a new block via gossip: ', blockRecord.key, '\n')
             const blockRecordTest = await this.ledger.onBlock(blockRecord)
             if (!blockRecordTest.valid) {
-              
+
               throw new Error(blockRecordTest.reason)
             }
 
-            const blockMessage = await this.network.createGenericMessage('block', message.data)
+            const blockMessage = await this.network.createGenericMessage('block', (message as IGenericMessage).data)
             // should not be returned to the same node
 
-            this.network.gossip(blockMessage, message.sender)
+            this.network.gossip(blockMessage, Buffer.from(message.sender, 'hex'))
             this.emit('block', blockRecord)
           }
           break
@@ -384,29 +428,28 @@ export default class Subspace extends EventEmitter {
           await this.send(message.sender, response)
           break
         case('chain-request'):
-          const chain = this.ledger.chain
-          response = await this.network.createGenericMessage('chain-reply', chain)
-          await this.send(message.sender, response)
+          const payload = Buffer.from(JSON.stringify(this.ledger.chain))
+          await this.send(message.sender, payload)
           break
         case('last-block-id-request'):
           const lastBlockId = this.ledger.getLastBlockId()
           response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId)
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('block-header-request'):
-          const blockKey: string = message.data
+          const blockKey = (message as IGenericMessage).data
           const blockValue = JSON.parse( await this.storage.get(blockKey))
           blockValue.content = JSON.stringify(blockValue.content)
           const block = Record.readPacked(blockKey, blockValue)
           response = await this.network.createGenericMessage('block-header-reply', block.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('tx-request'):
-          const txKey = message.data
+          const txKey = (message as IGenericMessage).data
           const txValue = JSON.parse( await this.storage.get(txKey))
           const tx = Record.readPacked(txKey, txValue)
           response = await this.network.createGenericMessage('tx-reply', tx.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('pending-block-header-request'):
           const pendingBlockId = this.ledger.validBlocks[0]
@@ -418,27 +461,27 @@ export default class Subspace extends EventEmitter {
           } else {
             response = await this.network.createGenericMessage('pending-block-header-reply', null)
           }
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('pending-tx-request'):
-          const pendingTxId: string = message.data
-          const pendingTxValue = this.ledger.validTxs.get(pendingTxId)
+          const pendingTxId = (message as IGenericMessage).data
+          console.log(pendingTxId)
+          const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)))
           if (!pendingTxValue) {
             console.log(pendingTxId, this.ledger.validTxs)
             throw new Error('Do not have pending tx')
           }
-          const pendingTxCopy = JSON.parse(JSON.stringify(pendingTxValue))
-          const pendingTxRecord = Record.readUnpacked(pendingTxId, pendingTxCopy)
+          const pendingTxRecord = Record.readUnpacked(pendingTxId, pendingTxValue)
           await pendingTxRecord.pack(null)
           response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord())
-          await this.network.send(message.sender, response)
+          await this.send(message.sender, response)
           break
         case('host-join'):
           // on receipt of join message by each host
-          const join: IJoinObject = message.data
+          const join: IJoinObject = (message as IGenericMessage).data
           // later add strict validation
           // if the node is in the LHT, in an incative state, compute its neighbors
-          entry = this.tracker.getEntry(join.nodeId)
+          const entry = this.tracker.getEntry(join.nodeId)
           if (entry && !entry.status) {
             const activeHosts = this.tracker.getActiveHosts()
             const neighbors = new Set([...this.tracker.getNeighbors(join.nodeId, activeHosts)])
@@ -461,7 +504,7 @@ export default class Subspace extends EventEmitter {
             if (validCount >= (neighbors.size * (2/3))) {
               console.log('Valid host join, updating entry')
               this.tracker.updateEntry(join)
-              await this.network.gossip(message, message.sender)
+              await this.network.gossip(message, Buffer.from(message.sender))
 
               // drop any shards this host replicated from me
               if (this.evictedShards.has(join.nodeId)) {
@@ -492,7 +535,7 @@ export default class Subspace extends EventEmitter {
             console.log(requestTest.reason)
             neighborResponse.reason = requestTest.reason
             const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse)
-            await this.network.send(message.sender, responseMessage)  
+            await this.send(message.sender, responseMessage)  
           }
   
           // am I a valid neighbor for this host?
@@ -503,7 +546,7 @@ export default class Subspace extends EventEmitter {
             neighborResponse.reason = 'invalid neighbor request, not a valid neighbor'
             console.log(neighborResponse.reason)
             const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse)
-            await this.network.send(message.sender, responseMessage)
+            await this.send(message.sender, responseMessage)
           }
   
           // add to neighbors 
@@ -519,11 +562,11 @@ export default class Subspace extends EventEmitter {
 
           neighborResponse.valid = true
           neighborResponse.proof.signature = await crypto.sign(neighborResponse.proof, profile.privateKeyObject)
-          responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse)
-          await this.network.send(message.sender, responseMessage)
+          const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse)
+          await this.send(message.sender, responseMessage)
           break
-        case('shard-reqeust'):
-          const request: IShardRequest = message.data
+        case('shard-request'):
+          const request: IShardRequest = (message as IGenericMessage).data
           profile = this.wallet.getProfile()
   
           const shardResponse: IShardResponse = {
@@ -539,26 +582,26 @@ export default class Subspace extends EventEmitter {
           const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved)
           if (!shards.includes(request.shardId)) {
             const responseMessage = await this.network.createGenericMessage('shard-reply', shardResponse)
-            this.network.send(message.sender, responseMessage)
+            this.send(message.sender, responseMessage)
           }
   
-          entry = this.tracker.getEntry(message.sender)
-          if (!entry || entry.status) {
+          const shardEntry = this.tracker.getEntry(message.sender)
+          if (!shardEntry || shardEntry.status) {
             const responseMessage = await this.network.createGenericMessage('shard-reply', shardResponse)
-            this.network.send(message.sender, responseMessage)
+            this.send(message.sender, responseMessage)
           }
   
           // compute hosts for shard with the requesting host temporarilty set to active
-          entry.status = true
-          this.tracker.lht.set(message.sender, entry)
+          shardEntry.status = true
+          this.tracker.lht.set(message.sender, shardEntry)
           const hosts = this.database.computeHostsforShards([request.shardId], contract.replicationFactor)[0].hosts
-          entry.status = false
-          this.tracker.lht.set(message.sender, entry)
+          shardEntry.status = false
+          this.tracker.lht.set(message.sender, shardEntry)
   
           // see if they are both closer than me and if I have been evicted from shard
           if (!hosts.includes(message.sender) || hosts.includes(profile.id)) {
             const responseMessage = await this.network.createGenericMessage('shard-reply', shardResponse)
-            this.network.send(message.sender, responseMessage)
+            this.send(message.sender, responseMessage)
           }
   
           // valid request 
@@ -584,11 +627,11 @@ export default class Subspace extends EventEmitter {
           this.evictedShards.set(message.sender, evictedShard)
   
           // need to create an unsigned message, should really be sent as a stream
-          responseMessage = await this.network.createGenericMessage('shard-reply', response)
-          this.network.send(message.sender, responseMessage)
+          const shardResponseMessage = await this.network.createGenericMessage('shard-reply', response)
+          this.send(message.sender, shardResponseMessage)
           break
         case('host-leave'):
-          const leave: ILeaveObject = message.data
+          const leave: ILeaveObject = (message as IGenericMessage).data
           profile = this.wallet.getProfile()
     
           // validate the signature
@@ -598,7 +641,7 @@ export default class Subspace extends EventEmitter {
             const entry = this.tracker.getEntry(message.sender)
             if (entry && entry.status) {
               // valid leave, gossip back out
-              await this.network.gossip(message, message.sender)
+              await this.network.gossip(message, Buffer.from(message.sender))
               
               // see if I need to replicate any shards for this host
               this.replicateShards(message.sender)
@@ -611,7 +654,7 @@ export default class Subspace extends EventEmitter {
         case('failure-request'):
           // reply to a failure inquiry regarding one of my neighbors 
 
-          failure = message.data
+          const failure = (message as IGenericMessage).data
           // if you have detected the failure and have not already signed or created a failure message
           if (this.failedNeighbors.has(failure.nodeId)) {
             const failedNeighbor = this.failedNeighbors.get(failure.nodeId)
@@ -620,15 +663,15 @@ export default class Subspace extends EventEmitter {
               this.failedNeighbors.set(failure.nodeId, true)
               const response = await this.tracker.signFailureMessage(failure)
               const responseMessage = await this.network.createGenericMessage('failure-reply', response)
-              this.network.send(message.sender, responseMessage)
+              this.send(message.sender, responseMessage)
             }
           }
           break
         case('host-failure'):
           // listen for and validate gossiped failures of other hosts neighbors
-          failure = message.data
-          entry = this.tracker.getEntry(failure.nodeId)
-          if (entry && entry.status) {
+          const hostFailure = (message as IGenericMessage).data
+          const hostEntry = this.tracker.getEntry(failure.nodeId)
+          if (hostEntry && hostEntry.status) {
             const hosts = this.tracker.getActiveHosts()
             const neighbors = new Set([...this.tracker.getNeighbors(failure.nodeId, hosts)])
             let validSigs = 0
@@ -652,7 +695,7 @@ export default class Subspace extends EventEmitter {
               this.tracker.updateEntry(failure)
 
               // continue to spread the failure message
-              this.network.gossip(message, message.sender)
+              this.network.gossip(message, Buffer.from(message.sender))
 
               // remove the node from pending failure if I am a neighbor
               if (this.pendingFailures.has(failure.nodeId)) {
@@ -662,7 +705,7 @@ export default class Subspace extends EventEmitter {
           }
           break
         default:
-          this.emit(message.type, message.data, message.sender)
+          this.emit(message.type, (message as IGenericMessage).data)
       }
     })
 
@@ -670,7 +713,7 @@ export default class Subspace extends EventEmitter {
   }
 
   public async createProfile(options?: IProfileOptions) {
-    // create a new subspace identity 
+    // create a new subspace identity
     if(!options) {
       options = {
         name: DEFAULT_PROFILE_NAME,
@@ -708,19 +751,19 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public async join(myTcpPort = 8124, myAddress: 'localhost'): Promise<void> {  
+  public async join(myTcpPort = 8124, myAddress: 'localhost'): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
       // join the subspace network as a node, connecting to some known gateway nodes
-      // currently connects to a signle know gateway and then fetches existing nodes from it 
+      // currently connects to a signle know gateway and then fetches existing nodes from it
 
-      // connect to the first gateway 
+      // connect to the first gateway
       await this.network.join(myTcpPort, myAddress)
 
       if (this.bootstrap) {
         return resolve()
       }
 
-      // get all active gateways 
+      // get all active gateways
       await this.getGateways()
 
       // connect to each not already connected to, up to gateway count
@@ -728,19 +771,19 @@ export default class Subspace extends EventEmitter {
       const peers = this.network.getPeers()
       
       for (const gateway of this.network.gatewayNodes) {
-        if(!peers.includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-          await this.network.connectToGateway(gateway.nodeId, gateway.publicIp, gateway.tcpPort)
+        if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
+          await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
           const connectedGatewayCount = this.network.getGateways().length
           if (connectedGatewayCount === this.gatewayCount) {
             this.emit('join')
             resolve()
           }
         }
-      }  
+      }
 
       resolve()
-      
-      
+
+
     })
   }
 
@@ -752,17 +795,33 @@ export default class Subspace extends EventEmitter {
 
   public async connect(nodeId: string) {
     // connect to another node directly as a peer
-    await this.network.connect(nodeId)
+    await this.network.connect(Buffer.from(nodeId, 'hex'))
   }
 
   public async disconnect(nodeId: string) {
     // disconnect from another node as a peer
-    await this.network.disconnect(nodeId)
+    await this.network.disconnect(Buffer.from(nodeId, 'hex'))
     this.emit('disconnection')
   }
 
-  public async send(nodeId: string, message: any) {
-    await this.network.send(nodeId, message)
+  public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
+  public async send(nodeId: string, message: IMessage): Promise<void>
+  public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  public async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
+    if (nodeId instanceof Uint8Array) {
+      if (message instanceof Uint8Array) {
+        await this.network.send(nodeId, message, callback)
+      } else {
+        await this.network.send(nodeId, message)
+      }
+    } else {
+      if (message instanceof Uint8Array) {
+        await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
+      } else {
+        await this.network.send(Buffer.from(nodeId, 'hex'), message)
+      }
+    }
   }
 
   // ledger tx methods
@@ -817,14 +876,14 @@ export default class Subspace extends EventEmitter {
     // this.setPaymentTimer()
 
     // corresponding code for on('pledge')
-    // should emit an event when tx is confirmed 
+    // should emit an event when tx is confirmed
 
     this.network.gossip(txMessage)
     return txRecord
   }
 
   private setPaymentTimer() {
-    // called on init 
+    // called on init
     const pledge = this.wallet.profile.pledge
     // if I have an active pledge, set a timeout to request payment
     if (pledge) {
@@ -873,17 +932,17 @@ export default class Subspace extends EventEmitter {
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
   ) {
     // initially called from a subspace full node or console app that is reserving space on behalf of a client
-    // later once clients can earn / own credits they could call directly 
-    // creates a mutable storage contract, backed by an immutable contract tx with a mutable contract state 
-    // signature on funding tx must match signature on contract state 
+    // later once clients can earn / own credits they could call directly
+    // creates a mutable storage contract, backed by an immutable contract tx with a mutable contract state
+    // signature on funding tx must match signature on contract state
         // importantly, funding tx does not point to it's contract state
-        // this provides strong anonymity on the ledger 
+        // this provides strong anonymity on the ledger
         // this also allows for contract funds to be replenished over time
           // for example a mutable contract that needs to be renewed
           // or a mutable contract that needs to have more space added
 
-          
-    // create the empty mutable record to serve as contract state and id 
+
+    // create the empty mutable record to serve as contract state and id
     const profile = this.wallet.getProfile()
     const contractRecord = await Record.createMutable(null, false, profile.publicKey)
 
@@ -893,29 +952,29 @@ export default class Subspace extends EventEmitter {
     const publicKey = contractRecord.value.publicKey
     await contractRecord.pack(profile.publicKey)
 
-    // sign the contract public key with its private key to prove ownership without revealing contract id 
+    // sign the contract public key with its private key to prove ownership without revealing contract id
     const privateKeyObject = await crypto.getPrivateKeyObject(privateKey, passphrase)
     const contractSig = await crypto.sign(publicKey, privateKeyObject)
     const contractId = crypto.getHash(publicKey)
 
-    // tx will be saved on apply tx 
+    // tx will be saved on apply tx
     // contract record does not need to be saved directly
-      // state is already being saved in the wallet contract object 
+      // state is already being saved in the wallet contract object
       // each host will hold the state
       // when we send an update it should only inlcude the new state
 
     // create the immutable contract tx and tx record, with included contract signature
     const txRecord = await this.ledger.createMutableContractTx(spaceReserved, replicationFactor, ttl, contractSig, contractId)
 
-    // update the contract record with correct state 
+    // update the contract record with correct state
     const contractState = {
       fundingTx: txRecord.key,    // the current funding tx, can change over time
       spaceUsed: 0,                       // size of all data written to contract
       recordIndex: new Set()              // index of all records in the contract
     }
-    
+
     await contractRecord.update(contractState, profile)
-    
+
     // add the contract keys and data to your wallet
     const walletContract: IContractData = {
       key: {
@@ -943,7 +1002,7 @@ export default class Subspace extends EventEmitter {
         recordIndex: contractState.recordIndex
       }
     }
-    
+
     await this.wallet.contract.store(walletContract)
     return {txRecord, contractRecord}
   }
@@ -956,7 +1015,7 @@ export default class Subspace extends EventEmitter {
       const hosts = this.database.getShardAndHostsForKey(contract.id, contract).hosts
       const request: IContractRequest = {
         tx: txRecord.getRecord(),
-        contract: contractRecord.getRecord(),       
+        contract: contractRecord.getRecord(),
         signature: null
       }
 
@@ -970,7 +1029,7 @@ export default class Subspace extends EventEmitter {
       // when host to hold contract receives the contract-request
       this.on('contract-request', async (message: IGenericMessage) => {
         const request: IContractRequest = message.data
-        
+
         // validate the contract-request
         const tx = this.database.loadUnpackedRecord(request.tx)
         const contractState = this.database.loadUnpackedRecord(request.contract)
@@ -980,7 +1039,7 @@ export default class Subspace extends EventEmitter {
           return
         }
 
-        // validate the contract tx matches the contract record 
+        // validate the contract tx matches the contract record
         const contractTest = await this.database.isValidMutableContractRequest(tx, contractState)
         if (!contractTest) {
           const reason = 'Invalid contract request, mutable contract state public key does not match funding transaction contract signature'
@@ -1022,18 +1081,18 @@ export default class Subspace extends EventEmitter {
         this.removeRequest('reserve', record.key, message.sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-        
+
         // resolve on first valid response
         if (pendingSize === hostLength) {
           resolve()
         }
-    
+
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           const hosts = this.resolveRequest('reserve', record.key)
           this.emit('space-reserved', record.key, hosts)
         }
-      }) 
+      })
     })
   }
 
@@ -1046,7 +1105,7 @@ export default class Subspace extends EventEmitter {
       const publicContract = this.wallet.getPublicContract()
       const record = await this.database.createRecord(content, encrypted)
       this.wallet.contract.addRecord(record.key, record.getSize())
-      
+
       // create a put request signed by contract key
       const request: IPutRequest = {
         record: record.getRecord(),
@@ -1058,10 +1117,10 @@ export default class Subspace extends EventEmitter {
 
       const hosts = this.database.getHosts(record.key, publicContract)
       await this.addRequest('put', record.key, request, hosts)
-      
+
       this.on('put-request', async (message: IGenericMessage) => {
         // validate the contract request
-        const request: IPutRequest = message.data 
+        const request: IPutRequest = message.data
         const record = this.database.loadPackedRecord(request.record)
         const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
         const testRequest = await this.database.isValidPutRequest(record, contract, request)
@@ -1069,7 +1128,7 @@ export default class Subspace extends EventEmitter {
           this.sendPutResponse(message.sender, false, testRequest.reason, record.key)
           return
         }
-        
+
         // validate the record
         const testValid = await record.isValid(message.sender)
         if (!testValid.valid)  {
@@ -1077,40 +1136,40 @@ export default class Subspace extends EventEmitter {
           this.sendPutResponse(message.sender, false, testValid.reason, record.key)
           return
         }
-      
+
         // store the record, create PoR, and send reply
         await this.database.saveRecord(record, contract)
         const proof = record.createPoR(this.wallet.profile.user.id)
         this.sendPutResponse(message.sender, true, proof, record.key)
       })
-    
+
       this.on('put-reply', async (message: IGenericMessage) => {
         const response: IPutResponse = message.data
         if (!response.valid) {
           reject(new Error(response.reason))
         }
-    
+
         const profile = this.wallet.getProfile()
         const contract = this.wallet.getPublicContract()
-    
+
         // validate PoR
         const record = await this.database.getRecord(response.key)
         if (! record.isValidPoR(message.sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
-    
+
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('put', record.key)
         this.removeRequest('put', record.key, message.sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-        
+
         // resolve on first valid response
         if (pendingSize === hostLength) {
           const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
           resolve(content.value)
         }
-    
+
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           this.rev(contract.id, this.wallet.contract.state)
@@ -1132,45 +1191,45 @@ export default class Subspace extends EventEmitter {
       this.on('get-request', async (message: IGenericMessage) => {
         const request: IGetRequest = message.data
         // unpack key and validate request
-        const record = await this.database.getRecord(request.recordId) 
+        const record = await this.database.getRecord(request.recordId)
         const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor)
         if (!testRequest.valid)  {
           this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason)
           return
         }
-    
+
         // send the record and PoR back to client
         const proof = record.createPoR(this.wallet.profile.user.id)
         this.sendGetResponse(message.sender, true, request.recordId, proof, record)
       })
-    
+
       this.on('get-reply', async (message: IGenericMessage) => {
         const response: IGetResponse = message.data
         if (!response.valid) {
           reject(new Error(response.reason))
         }
-    
+
         const profile = this.wallet.getProfile()
         const contract = this.wallet.getPublicContract()
-    
+
         // load/validate record and validate PoR
         const record = await this.database.loadPackedRecord(response.record)
         if (! record.isValidPoR(message.sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
-    
+
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('get', record.key)
         this.removeRequest('get', record.key, message.sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-        
+
         // resolve on first valid response
         if (pendingSize === hostLength) {
           const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
           resolve(content.value)
         }
-    
+
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           const hosts = this.resolveRequest('get', record.key)
@@ -1179,13 +1238,13 @@ export default class Subspace extends EventEmitter {
       })
     })
   }
-  
+
   public rev(key: string, update: any) {
     return new Promise( async (resolve, reject) => {
       const keyObject = this.database.parseRecordKey(key)
       const publicContract = this.wallet.getPublicContract()
       const privateContract = this.wallet.getPrivateContract()
-    
+
       // get the old record and update
       const oldRecord = await this.database.getRecord(keyObject.recordId)
       if (oldRecord.value.immutable) {
@@ -1204,14 +1263,14 @@ export default class Subspace extends EventEmitter {
         signature: null
       }
       request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject)
-    
+
       // get hosts and send update requests
       const hosts = this.database.getHosts(key, publicContract)
       await this.addRequest('rev', key, request, hosts)
-    
+
       this.on('rev-request', async (message: IGenericMessage) => {
         // load the request and new record
-        const request: IRevRequest = message.data 
+        const request: IRevRequest = message.data
         const newRecord = this.database.loadPackedRecord(request.record)
         const oldRecord = await this.database.getRecord(newRecord.key)
         const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
@@ -1230,40 +1289,40 @@ export default class Subspace extends EventEmitter {
         }
 
         const sizeDelta = oldRecord.getSize() - newRecord.getSize()
-    
+
         // update the record, create PoR and send reply
         await this.database.saveRecord(newRecord, contract, true, sizeDelta)
         const proof = newRecord.createPoR(this.wallet.profile.user.id,)
         await this.sendRevResponse(message.sender, true, proof, newRecord.key)
       })
-    
+
       this.on('rev-reply', async (message: IGenericMessage) => {
         const response: IRevResponse = message.data
         if (!response.valid) {
           reject(new Error(message.data.data))
         }
-    
+
         const profile = this.wallet.getProfile()
         const contract = this.wallet.getPublicContract()
-    
+
         // validate PoR
         const record = await this.database.getRecord(response.key)
         if (! record.isValidPoR(message.sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
-    
+
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('rev', record.key)
         this.removeRequest('rev', record.key, message.sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-        
+
         // resolve on first valid response
         if (pendingSize === hostLength) {
           const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
           resolve(content)
         }
-    
+
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           this.rev(contract.id, this.wallet.contract.state)
@@ -1273,14 +1332,14 @@ export default class Subspace extends EventEmitter {
       })
     })
   }
-  
+
   public del(key: string) {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)
       const contract = this.wallet.getPrivateContract()
       const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts
-      
+
       // create a del request signed by contract key
       const request: IDelRequest = {
         shardId: keyObject.shardId,
@@ -1292,50 +1351,50 @@ export default class Subspace extends EventEmitter {
 
       request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject)
       await this.addRequest('del', keyObject.recordId, request, hosts)
-    
+
       this.on('del-request', async (message: IGenericMessage) => {
         // unpack key and validate request
         const request: IDelRequest = message.data
         const record = await this.database.getRecord(request.recordId)
         const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
-        
+
         const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request)
         if (!testRequest.valid)  {
           this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId)
           return
         }
-    
+
         // delete the record send PoD back to client
         await this.database.delRecord(record, request.shardId)
         const proof = record.createPoD(this.wallet.profile.user.id)
         await this.sendDelResponse(message.sender, true, proof, record.key)
       })
-    
+
       this.on('del-reply', async (message: IGenericMessage) => {
         const response: IDelResponse = message.data
         if (!response.valid) {
           reject(new Error(response.reason))
         }
-    
+
         const contract = this.wallet.getPublicContract()
         const record = await this.database.getRecord(response.key)
-    
+
         // load/validate record and validate PoD
         if (! record.isValidPoD(message.sender, response.reason))  {
           reject(new Error('Host returned invalid proof of deletion'))
         }
-    
+
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('del', record.key)
         this.removeRequest('del', record.key, message.sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-        
+
         // resolve on first valid response
         if (pendingSize === hostLength) {
           resolve()
         }
-    
+
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           await this.storage.del(record.key)
@@ -1356,15 +1415,15 @@ export default class Subspace extends EventEmitter {
     if (blockTime) {
       this.ledger.setBlockTime(blockTime)
     }
-    
-    if (this.bootstrap) { 
+
+    if (this.bootstrap) {
       this.ledger.hasLedger = true
       this.ledger.isFarming = true
       await this.ledger.bootstrap()
     } else {
       await this.getLedger(blockTime)
       this.ledger.isFarming = true
-    } 
+    }
   }
 
   private async getLedger(blockTime: number) {
@@ -1372,7 +1431,7 @@ export default class Subspace extends EventEmitter {
 
     let myLastBlockId = this.ledger.getLastBlockId()
     let gatewayLastBlockId = await this.getLastBlockId()
-    
+
     let previousBlockRecord: Record = null
     while (myLastBlockId !== gatewayLastBlockId) {
       console.log('Getting ledger segment')
@@ -1392,7 +1451,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('last-block-id-request')
       const gateway = this.network.getGateways()[0]
-      await this.network.send(gateway, request)
+      await this.send(gateway, request)
 
       this.once('last-block-id-reply', async (blockId: string) => {
         resolve(blockId)
@@ -1402,17 +1461,17 @@ export default class Subspace extends EventEmitter {
 
   private async getLedgerSegment(myLastBlockId: string) {
     // fetch a segment of the ledger based on the current state of the chain from a gateway
-    
+
     const chain = await this.getChain()
     let previousBlockRecord: Record = null
     if (!myLastBlockId) {
-      // get the chain from genesis block 
+      // get the chain from genesis block
       console.log('getting chain from genesis block')
       for (const blockId of chain) {
         previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
       }
     }  else {
-      // get the chain from my last block 
+      // get the chain from my last block
       function findBlockId(blockId: string) {
         return blockId === myLastBlockId
       }
@@ -1422,7 +1481,7 @@ export default class Subspace extends EventEmitter {
       let blockId: string = null
       console.log('getting chain from block: ', myLastBlockId)
       for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
-        blockId = chain[i] 
+        blockId = chain[i]
         if (blockId) {
           previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
         }
@@ -1457,13 +1516,13 @@ export default class Subspace extends EventEmitter {
     const block = new Block(blockRecord.value.content)
  
     // validate block
-    if (!block.value.previousBlock) { 
+    if (!block.value.previousBlock) {
       // genesis block
       const genesisTest = await block.isValidGenesisBlock(blockRecord)
         if (!genesisTest.valid) {
           throw new Error(genesisTest.reason)
-        } 
-    } else {          
+        }
+    } else {
       // normal block
       const blockTest = await block.isValid(blockRecord, {key: previousBlockRecord.key, value: previousBlockRecord.value.content})
       if (!blockTest.valid) {
@@ -1476,7 +1535,7 @@ export default class Subspace extends EventEmitter {
       // validate the tx record
       const txRecordTest = await txRecord.isValid()
       if (!txRecordTest.valid) {
-        
+
         throw new Error(txRecordTest.reason)
       }
       // then validate the tx data
@@ -1487,7 +1546,7 @@ export default class Subspace extends EventEmitter {
       }
     }
 
-    // apply block 
+    // apply block
     await this.ledger.applyBlock(blockRecord)
     return blockRecord
   }
@@ -1498,7 +1557,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('block-header-request', blockId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('block-header-reply', async (block: {key: string, value: Record['value']}) => {
         if (block) {
@@ -1519,7 +1578,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('tx-request', txId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('tx-reply', async (tx: {key: string, value: Record['value']}) => {
         if (tx) {
@@ -1538,25 +1597,25 @@ export default class Subspace extends EventEmitter {
     // called once all cleared blocks have been fetched
     // checks for the best pending block then starts the block interval based on last block publish time
 
-    // modify hasLedger to listen for new tx now 
-    // start the block interval timer based on time remaining on the last cleared block 
-    // the pending block is not being applied to the ledger before the next block is gossiped 
-    // contract tx is created in applyBlock, but only if farming 
+    // modify hasLedger to listen for new tx now
+    // start the block interval timer based on time remaining on the last cleared block
+    // the pending block is not being applied to the ledger before the next block is gossiped
+    // contract tx is created in applyBlock, but only if farming
       // when fetching the ledger, reward and contract tx should be created on getting a new block, not recreated
-      // is the contract for the last block fetched being created, so that their will be a contract for the next block 
+      // is the contract for the last block fetched being created, so that their will be a contract for the next block
 
-    
+
 
     // wouldn't start time always be set from the last cleared block?
-    // the interval should always be reset based on the last cleared block, each time 
+    // the interval should always be reset based on the last cleared block, each time
       // block time will be variable based on the delay
       // but the most valid block cannot be determined until the delay has expired
 
-      // each local proposed block is not created until the delay for the best solution expires 
-      // the block is gosssiped but not applied until the full interval expires 
-      // the full interval should always carry forward from the genesis block 
+      // each local proposed block is not created until the delay for the best solution expires
+      // the block is gosssiped but not applied until the full interval expires
+      // the full interval should always carry forward from the genesis block
 
-      // genesis time should be included in each block 
+      // genesis time should be included in each block
 
     const genesisTime = await this.getGenesisTime()
     const chainLength = this.ledger.chain.length
@@ -1564,7 +1623,7 @@ export default class Subspace extends EventEmitter {
 
     const timeRemaining = stopTime - Date.now()
     setTimeout( async () => {
-      // apply the best solution 
+      // apply the best solution
       const blockId = this.ledger.validBlocks[0]
       if (blockId) {
         const blockValue = this.ledger.pendingBlocks.get(blockId)
@@ -1579,7 +1638,7 @@ export default class Subspace extends EventEmitter {
   }
 
   public async getGenesisTime() {
-    // get the 
+    // get the
     const genesisBlockId = this.ledger.chain[0]
     const genesisBlock =  JSON.parse( await this.storage.get(genesisBlockId))
     const genesisRecord = Record.readUnpacked(genesisBlockId, genesisBlock)
@@ -1595,26 +1654,26 @@ export default class Subspace extends EventEmitter {
         for (const txId of pendingBlockHeader.value.content.txSet) {
           const pendingTxRecord = await this.getPendingTx(txId)
           const txRecordTest = await pendingTxRecord.isValid()
-  
+
           // validate the tx record
           if (!txRecordTest.valid) {
             throw new Error(txRecordTest.reason)
           }
-  
+
           // then validate the tx data
           const txTest = await this.ledger.onTx(pendingTxRecord)
           if (!txTest.valid) {
             throw new Error(txTest.reason)
           }
-        } 
-  
+        }
+
         // validate the block which adds to pendingBlocks if valid and best solution
         const blockRecordTest = await this.ledger.onBlock(pendingBlockHeader)
         if (!blockRecordTest.valid) {
           throw new Error(blockRecordTest.reason)
         }
       }
-    } 
+    }
   }
 
   private async getPendingBlockHeader(): Promise<Record> {
@@ -1622,7 +1681,7 @@ export default class Subspace extends EventEmitter {
       // rpc method to fetch the most valid pending block from a gateway node
       const request = await this.network.createGenericMessage('pending-block-header-request')
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('pending-block-header-reply', async (pendingBlock: {key: string, value: Record['value']}) => {
         if (pendingBlock) {
@@ -1630,7 +1689,7 @@ export default class Subspace extends EventEmitter {
           await pendingBlockRecord.unpack(null)
           resolve (pendingBlockRecord)
         }
-        resolve()  
+        resolve()
       })
     })
   }
@@ -1641,7 +1700,7 @@ export default class Subspace extends EventEmitter {
 
       const request = await this.network.createGenericMessage('pending-tx-request', txId)
       const gateway = this.network.getGateways()[0]
-      this.network.send(gateway, request)
+      this.send(gateway, request)
 
       this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
         const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
@@ -1652,10 +1711,74 @@ export default class Subspace extends EventEmitter {
   }
 
   public stopFarmer() {
-    this.ledger.isFarming = false 
+    this.ledger.isFarming = false
   }
 
   // host methods
+  public async connectToNeighbor(nodeId:string): Promise<void> {
+    return new Promise<void>( async (resolve, reject) => {
+      // send a connection request to a valid neighbor
+
+      const pledgeTxId = this.wallet.profile.pledge.pledgeTx
+      const request: INeighborRequest = { pledgeTxId }
+      const requestMessage = await this.network.createGenericMessage('neighbor-request', request)
+      await this.send(nodeId, requestMessage)
+
+      this.on('neighbor-request', async (message: IGenericMessage) => {
+        const response: INeighborResponse = {
+          valid: false,
+          reason: null,
+          proof: null
+        }
+        const requestTest = await this.tracker.isValidNeighborRequest(message)
+
+        // is this a valid neighbor request message?
+        if (!requestTest) {
+          response.reason = requestTest.reason
+          const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
+          await this.send(message.sender, responseMessage)
+        }
+
+        // am I a valid neighbor for this host?
+        const profile = this.wallet.getProfile()
+        const activeHosts = this.tracker.getActiveHosts()
+        const hostNeighbors = this.tracker.getNeighbors(message.sender, activeHosts)
+        if (!hostNeighbors.includes(profile.id)) {
+          response.reason = 'invalid neighbor request, not a valid neighbor'
+          const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
+          await this.send(message.sender, responseMessage)
+        }
+
+        // add to neighbors
+        this.neighbors.add(message.sender)
+
+        // send join reply with my signature proof
+        response.proof = {
+          host: message.sender,
+          neighbor: profile.publicKey,
+          timestamp: Date.now(),
+          signature: <string> null
+        }
+        response.valid = true
+        response.proof.signature = await crypto.sign(response.proof, profile.privateKey)
+        const responseMessage = await this.network.createGenericMessage('neighbor-reply', response)
+        await this.send(message.sender, responseMessage)
+      })
+
+      this.on('neighbor-reply', (message: IGenericMessage) => {
+        // check if request accpeted
+        const response: INeighborResponse = message.data
+        if (!response.valid) {
+          reject(new Error(response.reason))
+        }
+
+        // update my neighbors
+        this.neighbors.add(message.sender)
+        this.neighborProofs.set(message.sender, JSON.parse(JSON.stringify(response.proof)))
+        resolve()
+      })
+    })
+  }
 
   
 
@@ -1690,7 +1813,7 @@ export default class Subspace extends EventEmitter {
     const profile = this.wallet.getProfile()
     const promises: Promise<void>[] = []
 
-    // connect to all valid neighbors 
+    // connect to all valid neighbors
     const activeHosts = this.tracker.getActiveHosts()
     this.neighbors = new Set([...this.tracker.getNeighbors(profile.id, activeHosts, count)])
     console.log('\n Connecting to', this.neighbors.size, 'closest hosts, out of ', this.tracker.lht.size, 'active hosts.\n',  this.neighbors)
@@ -1698,7 +1821,7 @@ export default class Subspace extends EventEmitter {
       promises.push(this.connectToNeighbor(nodeId))
     }
 
-    // get all of my assigned shards, an expensive, (hoepfully) one-time operation 
+    // get all of my assigned shards, an expensive, (hoepfully) one-time operation
     for (const [recordId, original] of this.ledger.clearedContracts) {
       const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
@@ -1722,29 +1845,6 @@ export default class Subspace extends EventEmitter {
     this.isHosting = true
     this.emit('joined-hosts')
 
-  }
-
-  public async connectToNeighbor(nodeId:string): Promise<void> {
-    return new Promise<void>( async (resolve, reject) => {
-      // send a connection request to a valid neighbor
-
-      const pledgeTxId = this.wallet.profile.pledge.pledgeTx
-      const request: INeighborRequest = { pledgeTxId }
-      const requestMessage = await this.network.createGenericMessage('neighbor-request', request)
-      await this.network.send(nodeId, requestMessage)
-
-      this.once('neighbor-reply', (response: INeighborResponse, sender: string) => {
-        // check if request accpeted
-        if (!response.valid) {
-          reject(new Error(response.reason))
-        }
-
-        // update my neighbors
-        this.neighbors.add(sender)
-        this.neighborProofs.set(sender, JSON.parse(JSON.stringify(response.proof)))
-        resolve()
-      })      
-    })
   }
 
   public async getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void> {
@@ -1775,7 +1875,6 @@ export default class Subspace extends EventEmitter {
           await this.storage.put(record.key, JSON.stringify(record.value))
           await this.database.putRecordInShard(request.shardId, record)
         }
-        resolve()
       })
     })
   }
@@ -1788,7 +1887,7 @@ export default class Subspace extends EventEmitter {
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
       for (const shardId of shards) {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor + 1)[0].hosts
-        // if we are both in the enlarged host array 
+        // if we are both in the enlarged host array
         if (hosts.includes(nodeId) && hosts.includes(profile.id)) {
           // and I am last host
           if (hosts[hosts.length -1] === profile.id) {
@@ -1805,6 +1904,152 @@ export default class Subspace extends EventEmitter {
     const message = await this.tracker.createLeaveMessage()
     await this.network.gossip(message)
     this.isHosting = false
+    this.neighbors.clear()
+    await this.network.leaveHosts()
+
+    // on receipt of leave message by each host
+    this.network.on('host-leave', async (message: IHostMessage) => {
+      const leave: ILeaveObject = message.data
+      const profile = this.wallet.getProfile()
+
+      // validate the signature
+      const unsignedLeave = JSON.parse(JSON.stringify(leave))
+      unsignedLeave.signature = null
+      if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
+        const entry = this.tracker.getEntry(message.sender)
+        if (entry && entry.status) {
+          // valid leave, gossip back out
+          await this.network.gossip(message, Buffer.from(message.sender, 'hex'))
+
+          // see if I need to replicate any shards for this host
+          this.replicateShards(message.sender)
+
+          // deactivate the node in the tracker after computing shards
+          this.tracker.updateEntry(leave)
+        }
+      }
+    })
+  }
+
+  public async onHostFailure() {
+    // listen for and validate disconnection of my host neighbors
+
+    this.on('disconnection', async (nodeId: string) => {
+      if (this.isHosting) {
+        if (this.neighbors.has(nodeId)) {
+          const entry = this.tracker.getEntry(nodeId)
+          if (entry && entry.status) {
+            // a valid neighbor has failed
+            this.failedNeighbors.set(nodeId, false)
+            const timeout = Math.floor(Math.random() * Math.floor(10))
+            setTimeout(async () => {
+              // later attempt to ping the node
+
+              // if failure entry is still false (have not received a failure message)
+              const entry = this.failedNeighbors.get(nodeId)
+              if (!entry) {
+                this.failedNeighbors.set(nodeId, true)
+                // compute their neighbors
+                const profile = this.wallet.getProfile()
+                const hosts = this.tracker.getActiveHosts()
+                const neighbors = new Set([...this.tracker.getNeighbors(nodeId, hosts)])
+                neighbors.delete(profile.id)
+
+                // track the failures
+                const pendingFailure: IPendingFailure = {
+                  neighbors,
+                  signatures: [],
+                  createdAt: Date.now()
+                }
+                this.pendingFailures.set(nodeId, JSON.parse(JSON.stringify(pendingFailure)))
+
+                // start the failure message
+                const failureMessage = await this.tracker.createFailureMessage(nodeId)
+                for (const neighbor of neighbors) {
+                  await this.send(neighbor, failureMessage)
+                }
+              }
+            }, timeout * 1000)
+          }
+        }
+      }
+    })
+
+    this.on('failure-request', async (message: IGenericMessage) => {
+      // reply to a failure inquiry regarding one of my neighbors
+      const failure: IFailureObject = message.data
+      // if you have detected the failure and have not already signed or created a failure message
+      if (this.failedNeighbors.has(failure.nodeId)) {
+        const entry = this.failedNeighbors.get(failure.nodeId)
+        if (!entry) {
+          // append signature to failure message
+          this.failedNeighbors.set(failure.nodeId, true)
+          const response = await this.tracker.signFailureMessage(failure)
+          const responseMessage = await this.network.createGenericMessage('failure-reply', response)
+          this.send(message.sender, responseMessage)
+        }
+      }
+    })
+
+    this.on('failure-reply', async (message: IGenericMessage) => {
+      const response: ISignatureObject = message.data
+      // validate the signature
+      const unsignedResponse = JSON.parse(JSON.stringify(response))
+      unsignedResponse.signature = null
+      // if valid signature, add to pending failure
+      if (await crypto.isValidSignature(unsignedResponse, response.publicKey, response.signature)) {
+        const pendingFailure = JSON.parse(JSON.stringify(this.pendingFailures.get(response.nodeId)))
+        pendingFailure.signatures.push(response)
+        this.pendingFailures.set(response.nodeId, JSON.parse(JSON.stringify(pendingFailure)))
+        // once you have 2/3 signatures turn into a failure proof
+        if (pendingFailure.signatures.length >= pendingFailure.neighbors.size * (2/3)) {
+          // resolve the failure request
+          this.pendingFailures.delete(response.nodeId)
+          // create and gossip the failure message
+          const fullFailureMessage = await this.tracker.compileFailureMessage(response.nodeId, pendingFailure.createdAt, pendingFailure.signatures)
+          this.network.gossip(fullFailureMessage)
+        }
+      }
+    })
+
+    // listen for and validate gossiped failures of other hosts neighbors
+    this.on('host-failure', async (message: IHostMessage) => {
+      const failure: IFailureObject = message.data
+
+      const entry = this.tracker.getEntry(failure.nodeId)
+      if (entry && entry.status) {
+        const hosts = this.tracker.getActiveHosts()
+        const neighbors = new Set([...this.tracker.getNeighbors(failure.nodeId, hosts)])
+        let validSigs = 0
+        for (const signature of failure.signatures) {
+          if (neighbors.has(crypto.getHash(signature.publicKey))) {
+            const unsignedSig = JSON.parse(JSON.stringify(signature))
+            unsignedSig.signature = null
+            if (await crypto.isValidSignature(signature, signature.signature, signature.publicKey)) {
+              validSigs ++
+            }
+          }
+        }
+
+        // valid failure if at least 2/3 of signatures are valid
+        if (validSigs >= neighbors.size*(2/3)) {
+
+          // check to see if I need to replicate shards
+          this.replicateShards(failure.nodeId)
+
+          // deactivate the node in the tracker
+          this.tracker.updateEntry(failure)
+
+          // continue to spread the failure message
+          this.network.gossip(message, Buffer.from(message.sender, 'hex'))
+
+          // remove the node from pending failure if I am a neighbor
+          if (this.pendingFailures.has(failure.nodeId)) {
+            this.pendingFailures.delete(failure.nodeId)
+          }
+        }
+      }
+    })
     this.neighbors.clear
     await this.network.leaveHosts()    
   }

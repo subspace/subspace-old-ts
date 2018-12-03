@@ -2,7 +2,7 @@
 import EventEmitter from 'events';
 import Wallet, { IProfileOptions } from '@subspace/wallet';
 import Storage from '@subspace/storage';
-import Network from '@subspace/network';
+import Network, { IMessage, IMessageCallback } from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
@@ -54,7 +54,10 @@ export default class Subspace extends EventEmitter {
     leave(): Promise<void>;
     connect(nodeId: string): Promise<void>;
     disconnect(nodeId: string): Promise<void>;
-    send(nodeId: string, message: any): Promise<void>;
+    send(nodeId: Uint8Array, message: IMessage): Promise<void>;
+    send(nodeId: string, message: IMessage): Promise<void>;
+    send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>;
+    send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>;
     seedPlot(size?: number): Promise<void>;
     getBalance(address?: string): number;
     sendCredits(amount: number, address: string): Promise<Record>;
@@ -85,9 +88,10 @@ export default class Subspace extends EventEmitter {
     private getPendingBlockHeader;
     private getPendingTx;
     stopFarmer(): void;
-    joinHosts(count: number): Promise<void>;
     connectToNeighbor(nodeId: string): Promise<void>;
+    joinHosts(count: number): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
     private replicateShards;
     leaveHosts(): Promise<void>;
+    onHostFailure(): Promise<void>;
 }
