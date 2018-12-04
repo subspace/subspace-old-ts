@@ -14,7 +14,7 @@ const events_1 = __importDefault(require("events"));
 const crypto = __importStar(require("@subspace/crypto"));
 const wallet_1 = __importDefault(require("@subspace/wallet"));
 const storage_1 = __importDefault(require("@subspace/storage"));
-const network_1 = __importDefault(require("@subspace/network"));
+const network_1 = __importStar(require("@subspace/network"));
 const tracker_1 = require("@subspace/tracker");
 const ledger_1 = require("@subspace/ledger");
 const database_1 = require("@subspace/database");
@@ -230,10 +230,7 @@ class Subspace extends events_1.default {
         this.network = new network_1.default(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.tracker, this.env);
         // prune messages every 10 minutes
         this.startMessagePruner();
-        this.network.on('join', () => this.emit('join'));
-        this.network.on('leave', () => this.emit('leave'));
-        this.network.on('connection', connection => this.emit('connection', connection.nodeId));
-        this.network.on('disconnection', (connection) => {
+        this.on('disconnection', (connection) => {
             this.emit('disconnection', connection.nodeId);
             const nodeId = Buffer.from(connection.nodeId).toString('hex');
             // if hosting, listen for and report on failed hosts
@@ -294,7 +291,7 @@ class Subspace extends events_1.default {
                 }
             });
         });
-        this.network.on('message', async (message, callback) => {
+        this.network.on('message', async (message, id, callback) => {
             console.log('Received a', message.type, 'message from', message.sender.substring(0, 8));
             let valid = false;
             // handle validation for gossiped messages here
@@ -311,18 +308,52 @@ class Subspace extends events_1.default {
             switch (message.type) {
                 // don't validate tx and blocks until you have the full ledger
                 // and are ready to start farming
-                case ('peer-added'):
+                case 'join-request': {
+                    const connection = this.network.getConnectionFromId(id);
+                    if (!await this.network.isValidMessage(message)) {
+                        connection.destroy();
+                    }
+                    const reply = await this.createJoinMessage('join-response');
+                    connection.sendRequest(reply);
+                    await this.network.activatePendingConnection(message, id);
+                    break;
+                }
+                case 'join-response': {
+                    const callback = this.network.joinResponseCallbacks.get(id);
+                    if (callback) {
+                        this.network.joinResponseCallbacks.delete(id);
+                        await callback(message);
+                    }
+                    break;
+                }
+                case 'tracker-request': {
+                    const lht = JSON.stringify([...this.tracker.lht]);
+                    const reply = await this.network.createGenericMessage('tracker-response', lht);
+                    await this.send(id, reply);
+                    break;
+                }
+                case 'tracker-response': {
+                    const callback = this.network.trackerResponseCallbacks.get(id);
+                    if (callback) {
+                        this.network.trackerResponseCallbacks.delete(id);
+                        callback(message);
+                    }
+                    break;
+                }
+                case ('peer-added'): {
                     peer = message.data;
                     connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
                     connection.peers.push(Buffer.from(peer, 'hex'));
                     break;
-                case ('peer-removed'):
+                }
+                case ('peer-removed'): {
                     peer = message.data;
                     connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
                     const index = connection.peers.indexOf(Buffer.from(peer, 'hex'));
                     connection.peers.splice(index, 1);
                     break;
-                case ('tx'):
+                }
+                case ('tx'): {
                     if (this.ledger.hasLedger) {
                         // first ensure we have a valid SSDB record wrapping the tx
                         const txRecord = database_1.Record.readUnpacked(message.data.key, message.data.value);
@@ -338,7 +369,8 @@ class Subspace extends events_1.default {
                         }
                     }
                     break;
-                case ('block'):
+                }
+                case ('block'): {
                     if (this.ledger.hasLedger) {
                         const blockRecord = database_1.Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)));
                         await blockRecord.unpack(null);
@@ -353,6 +385,7 @@ class Subspace extends events_1.default {
                         this.emit('block', blockRecord);
                     }
                     break;
+                }
                 case ('gateway-request'):
                     response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes);
                     await this.send(message.sender, response);
@@ -546,6 +579,7 @@ class Subspace extends events_1.default {
                     this.send(message.sender, shardResponseMessage);
                     break;
                 case ('host-leave'):
+                    // on receipt of leave message by each host
                     const leave = message.data;
                     profile = this.wallet.getProfile();
                     // validate the signature
@@ -634,7 +668,7 @@ class Subspace extends events_1.default {
         }
     }
     // core network methods
-    async getGateways() {
+    async requestGateways() {
         return new Promise(async (resolve, reject) => {
             // request the latest array of gateway nodes from the first gateway node, merge with your array
             const gateway = this.network.getClosestGateways(1)[0];
@@ -649,23 +683,77 @@ class Subspace extends events_1.default {
             });
         });
     }
-    async join(myTcpPort = 8124, myAddress) {
+    async createJoinMessage(type) {
+        const profile = this.wallet.getProfile();
+        let message = {
+            version: 0,
+            type,
+            isGateway: this.isGateway,
+            address: this.network.myAddress,
+            tcpPort: this.network.myTcpPort,
+            wsPort: this.network.myWsPort,
+            publicKey: profile.publicKey,
+            sender: profile.id,
+            timestamp: Date.now(),
+            peers: this.network.getPeers(),
+            signature: null
+        };
+        message.signature = await crypto.sign(message, profile.privateKeyObject);
+        return message;
+    }
+    async join(myTcpPort = 8124, myAddress, myWsPort) {
         return new Promise(async (resolve, reject) => {
             // join the subspace network as a node, connecting to some known gateway nodes
             // currently connects to a signle know gateway and then fetches existing nodes from it
-            // connect to the first gateway
-            await this.network.join(myTcpPort, myAddress);
-            if (this.bootstrap) {
-                return resolve();
+            if (this.env === 'gateway' || this.env === 'private-host') {
+                await this.network.startTcpServer(myTcpPort, myAddress);
+                this.network.myAddress = myAddress;
+                this.network.myTcpPort = myTcpPort;
             }
+            if (myWsPort) {
+                await this.network.startWsServer('0.0.0.0', myWsPort);
+                this.network.myWsPort = myWsPort;
+            }
+            if (this.bootstrap && this.env !== 'gateway') {
+                const error = 'Only a gateway node may bootstrap the network';
+                reject(error);
+            }
+            if (this.bootstrap) {
+                resolve();
+            }
+            // connect to a single gateway node
+            const gateways = this.network.getClosestGateways(this.gatewayCount);
+            let count = this.gatewayCount;
+            for (const gateway of gateways) {
+                const requestMessage = await this.createJoinMessage('join-request');
+                this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, requestMessage)
+                    .then(async (connection) => {
+                    if (!connection) {
+                        --count;
+                        if (!count) {
+                            reject(new Error('Error connecting to last gateway, request timed out'));
+                        }
+                        return;
+                    }
+                    const tracker = await this.getTracker(connection.nodeId);
+                    this.tracker.loadLht(tracker);
+                    this.network.computeNetworkGraph();
+                    // send a ready event
+                    // disconnect from some number of gateways?
+                    this.emit('connected');
+                    resolve();
+                });
+            }
+            // fetch the new list of gateways 
             // get all active gateways
-            await this.getGateways();
-            // connect to each not already connected to, up to gateway count
-            const gateways = this.network.getGateways();
+            await this.requestGateways();
+            // connect to each not already connected to, up to gateway count (full mesh)
+            const allGateways = this.network.getGateways();
             const peers = this.network.getPeers();
             for (const gateway of this.network.gatewayNodes) {
                 if (!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-                    await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
+                    const joinMessage = await this.createJoinMessage('join-request');
+                    await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
                     const connectedGatewayCount = this.network.getGateways().length;
                     if (connectedGatewayCount === this.gatewayCount) {
                         this.emit('join');
@@ -676,21 +764,77 @@ class Subspace extends events_1.default {
             resolve();
         });
     }
-    async leave() {
+    leave() {
         // leave the subspace network, disconnecting from all peers
-        await this.network.leave();
+        this.network.connections.forEach((connection) => {
+            // should you send a leave message for graceful shutdown?
+            this.disconnect(connection.nodeId);
+        });
         this.emit('leave');
     }
     async connect(nodeId) {
         // connect to another node directly as a peer
-        await this.network.connect(Buffer.from(nodeId, 'hex'));
+        const nodeIdString = Buffer.from(nodeId).toString('hex');
+        return new Promise(async (resolve, reject) => {
+            try {
+                let connection;
+                if (this.network.isPeer(nodeIdString)) {
+                    connection = this.network.getConnectionFromId(nodeId);
+                }
+                if (this.network.isGatewayNode(nodeIdString)) {
+                    const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0];
+                    const joinMessage = await this.createJoinMessage('join-request');
+                    connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+                }
+                if (this.tracker.hasEntry(nodeIdString)) {
+                    const host = this.tracker.getEntry(nodeIdString);
+                    if (host.status && host.isGateway) {
+                        const joinMessage = await this.createJoinMessage('join-request');
+                        connection = await this.network.connectToGateway(nodeId, host.publicIp, host.tcpPort, joinMessage);
+                    }
+                    else if (host.status) {
+                        // TODO: `validHosts` shouldn't be `[]`, fix this
+                        const neighbors = this.tracker.getNeighbors(nodeIdString, []);
+                        const public_neighbors = neighbors
+                            .filter((node) => node.isGateway)
+                            .map((node) => node.public_ip);
+                        if (neighbors.length) {
+                            // may want to find closest to you or closest to host by distance
+                            for (let neighborId in public_neighbors) {
+                                const neighbor = this.tracker.getEntry(neighborId);
+                                const joinMessage = await this.createJoinMessage('join-request');
+                                connection = await this.network.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, joinMessage);
+                                // relay signalling info here
+                                // connect over tcp or wrtc
+                                resolve(null);
+                            }
+                        }
+                    }
+                }
+                this.emit('connection', connection.nodeId);
+                resolve(connection);
+            }
+            catch (error) {
+                this.emit('error', error);
+                reject(error);
+            }
+        });
     }
-    async disconnect(nodeId) {
+    disconnect(nodeId) {
         // disconnect from another node as a peer
-        await this.network.disconnect(Buffer.from(nodeId, 'hex'));
-        this.emit('disconnection');
+        const connection = this.network.connections.get(nodeId);
+        if (connection) {
+            connection.destroy();
+            this.network.removeNodeFromGraph(connection.nodeId);
+            this.emit('disconnection', nodeId);
+        }
     }
     async send(nodeId, message, callback) {
+        // Not sure how to add this back in here
+        // need to check if a connection exists, else try to connect before sending
+        // if (!connection) {
+        //   connection = await this.connect(nodeId)
+        // }
         if (nodeId instanceof Uint8Array) {
             if (message instanceof Uint8Array) {
                 await this.network.send(nodeId, message, callback);
@@ -1446,6 +1590,31 @@ class Subspace extends events_1.default {
         this.ledger.isFarming = false;
     }
     // host methods
+    getTracker(nodeId) {
+        return new Promise(async (resolve, reject) => {
+            const message = await this.network.createGenericMessage('tracker-request');
+            await this.send(nodeId, message);
+            this.network.trackerResponseCallbacks.set(nodeId, (message) => {
+                resolve(message.data);
+            });
+            // Reject connection that takes too long
+            setTimeout(() => {
+                this.network.trackerResponseCallbacks.delete(nodeId);
+                reject();
+            }, network_1.CONNECTION_TIMEOUT * 1000);
+        });
+    }
+    getTrackerHash(nodeId) {
+        return new Promise(async (resolve) => {
+            const message = await this.network.createGenericMessage('get-tracker-hash');
+            await this.send(nodeId, message);
+            this.once('got-tracker-hash', (hash, from_id) => {
+                if (nodeId === from_id) {
+                    resolve(hash);
+                }
+            });
+        });
+    }
     async connectToNeighbor(nodeId) {
         return new Promise(async (resolve, reject) => {
             // send a connection request to a valid neighbor
@@ -1545,9 +1714,8 @@ class Subspace extends events_1.default {
         }
         await Promise.all(promises);
         // compile signatures, create and gossip the join messsage 
-        const publicIP = `${this.network.myAddress}:${this.network.myTcpPort}:${this.network.myWsPort}`;
         const signatures = [...this.neighborProofs.values()];
-        const joinMessage = await this.tracker.createJoinMessage(publicIP, this.isGateway, signatures);
+        const joinMessage = await this.tracker.createJoinMessage(this.network.myAddress, this.network.myTcpPort, this.network.myWsPort, this.isGateway, signatures);
         await this.network.gossip(joinMessage);
         this.tracker.updateEntry(joinMessage.data);
         this.isHosting = true;
@@ -1603,24 +1771,10 @@ class Subspace extends events_1.default {
         await this.network.gossip(message);
         this.isHosting = false;
         this.neighbors.clear();
-        await this.network.leaveHosts();
-        // on receipt of leave message by each host
-        this.network.on('host-leave', async (message) => {
-            const leave = message.data;
-            const profile = this.wallet.getProfile();
-            // validate the signature
-            const unsignedLeave = JSON.parse(JSON.stringify(leave));
-            unsignedLeave.signature = null;
-            if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
-                const entry = this.tracker.getEntry(message.sender);
-                if (entry && entry.status) {
-                    // valid leave, gossip back out
-                    await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
-                    // see if I need to replicate any shards for this host
-                    this.replicateShards(message.sender);
-                    // deactivate the node in the tracker after computing shards
-                    this.tracker.updateEntry(leave);
-                }
+        // 
+        this.network.connections.forEach((connection) => {
+            for (const neighbor of this.neighbors) {
+                this.disconnect(Buffer.from(neighbor, 'hex'));
             }
         });
     }
@@ -1731,7 +1885,7 @@ class Subspace extends events_1.default {
             }
         });
         this.neighbors.clear;
-        await this.network.leaveHosts();
+        await this.leaveHosts();
     }
 }
 exports.default = Subspace;

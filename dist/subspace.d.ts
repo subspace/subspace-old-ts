@@ -2,7 +2,7 @@
 import EventEmitter from 'events';
 import Wallet, { IProfileOptions } from '@subspace/wallet';
 import Storage from '@subspace/storage';
-import Network, { IMessage, IMessageCallback } from '@subspace/network';
+import Network, { IConnectionObject, IMessage, IMessageCallback } from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
@@ -49,11 +49,12 @@ export default class Subspace extends EventEmitter {
     init(env: string, gateway: boolean, path?: string): Promise<void>;
     createProfile(options?: IProfileOptions): Promise<void>;
     deleteProfile(): Promise<void>;
-    getGateways(): Promise<void>;
-    join(myTcpPort: number, myAddress: 'localhost'): Promise<void>;
-    leave(): Promise<void>;
-    connect(nodeId: string): Promise<void>;
-    disconnect(nodeId: string): Promise<void>;
+    requestGateways(): Promise<void>;
+    private createJoinMessage;
+    join(myTcpPort: number, myAddress: 'localhost', myWsPort?: number): Promise<void>;
+    leave(): void;
+    connect(nodeId: Uint8Array): Promise<IConnectionObject>;
+    disconnect(nodeId: Uint8Array): void;
     send(nodeId: Uint8Array, message: IMessage): Promise<void>;
     send(nodeId: string, message: IMessage): Promise<void>;
     send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>;
@@ -88,6 +89,8 @@ export default class Subspace extends EventEmitter {
     private getPendingBlockHeader;
     private getPendingTx;
     stopFarmer(): void;
+    getTracker(nodeId: Uint8Array): Promise<any>;
+    getTrackerHash(nodeId: Uint8Array): Promise<string>;
     connectToNeighbor(nodeId: string): Promise<void>;
     joinHosts(count: number): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
