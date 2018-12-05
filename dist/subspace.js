@@ -230,9 +230,8 @@ class Subspace extends events_1.default {
         this.network = new network_1.default(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.tracker, this.env);
         // prune messages every 10 minutes
         this.startMessagePruner();
-        this.on('disconnection', (connection) => {
-            this.emit('disconnection', connection.nodeId);
-            const nodeId = Buffer.from(connection.nodeId).toString('hex');
+        this.on('disconnection', (binaryId) => {
+            const nodeId = Buffer.from(binaryId).toString('hex');
             // if hosting, listen for and report on failed hosts
             if (this.isHosting) {
                 if (this.neighbors.has(nodeId)) {
@@ -262,7 +261,7 @@ class Subspace extends events_1.default {
                                 // start the failure message 
                                 const failureMessage = await this.tracker.createFailureMessage(nodeId);
                                 for (const neighbor of neighbors) {
-                                    await this.network.send(connection.nodeId, failureMessage);
+                                    await this.send(binaryId, failureMessage);
                                 }
                             }
                         }, timeout * 1000);
@@ -386,20 +385,23 @@ class Subspace extends events_1.default {
                     }
                     break;
                 }
-                case ('gateway-request'):
+                case ('gateway-request'): {
                     response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes);
                     await this.send(message.sender, response);
                     break;
-                case ('chain-request'):
+                }
+                case ('chain-request'): {
                     const payload = Buffer.from(JSON.stringify(this.ledger.chain));
                     await this.send(message.sender, payload);
                     break;
-                case ('last-block-id-request'):
+                }
+                case ('last-block-id-request'): {
                     const lastBlockId = this.ledger.getLastBlockId();
                     response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId);
                     await this.send(message.sender, response);
                     break;
-                case ('block-header-request'):
+                }
+                case ('block-header-request'): {
                     const blockKey = message.data;
                     const blockValue = JSON.parse(await this.storage.get(blockKey));
                     blockValue.content = JSON.stringify(blockValue.content);
@@ -407,14 +409,16 @@ class Subspace extends events_1.default {
                     response = await this.network.createGenericMessage('block-header-reply', block.getRecord());
                     await this.send(message.sender, response);
                     break;
-                case ('tx-request'):
+                }
+                case ('tx-request'): {
                     const txKey = message.data;
                     const txValue = JSON.parse(await this.storage.get(txKey));
                     const tx = database_1.Record.readPacked(txKey, txValue);
                     response = await this.network.createGenericMessage('tx-reply', tx.getRecord());
                     await this.send(message.sender, response);
                     break;
-                case ('pending-block-header-request'):
+                }
+                case ('pending-block-header-request'): {
                     const pendingBlockId = this.ledger.validBlocks[0];
                     if (pendingBlockId) {
                         const pendingBlockValue = JSON.parse(JSON.stringify(this.ledger.pendingBlocks.get(pendingBlockId)));
@@ -427,7 +431,8 @@ class Subspace extends events_1.default {
                     }
                     await this.send(message.sender, response);
                     break;
-                case ('pending-tx-request'):
+                }
+                case ('pending-tx-request'): {
                     const pendingTxId = message.data;
                     console.log(pendingTxId);
                     const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)));
@@ -440,7 +445,8 @@ class Subspace extends events_1.default {
                     response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord());
                     await this.send(message.sender, response);
                     break;
-                case ('host-join'):
+                }
+                case ('host-join'): {
                     // on receipt of join message by each host
                     const join = message.data;
                     // later add strict validation
@@ -482,7 +488,8 @@ class Subspace extends events_1.default {
                         }
                     }
                     break;
-                case ('neighbor-request'):
+                }
+                case ('neighbor-request'): {
                     // validate a host neighbor request and connect
                     let profile = this.wallet.getProfile();
                     const requestTest = await this.tracker.isValidNeighborRequest(message);
@@ -521,9 +528,10 @@ class Subspace extends events_1.default {
                     const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse);
                     await this.send(message.sender, responseMessage);
                     break;
-                case ('shard-request'):
+                }
+                case ('shard-request'): {
                     const request = message.data;
-                    profile = this.wallet.getProfile();
+                    const profile = this.wallet.getProfile();
                     const shardResponse = {
                         valid: false,
                         reason: null,
@@ -578,10 +586,10 @@ class Subspace extends events_1.default {
                     const shardResponseMessage = await this.network.createGenericMessage('shard-reply', response);
                     this.send(message.sender, shardResponseMessage);
                     break;
-                case ('host-leave'):
+                }
+                case ('host-leave'): {
                     // on receipt of leave message by each host
                     const leave = message.data;
-                    profile = this.wallet.getProfile();
                     // validate the signature
                     const unsignedLeave = JSON.parse(JSON.stringify(leave));
                     unsignedLeave.signature = null;
@@ -597,7 +605,8 @@ class Subspace extends events_1.default {
                         }
                     }
                     break;
-                case ('failure-request'):
+                }
+                case ('failure-request'): {
                     // reply to a failure inquiry regarding one of my neighbors 
                     const failure = message.data;
                     // if you have detected the failure and have not already signed or created a failure message
@@ -612,9 +621,10 @@ class Subspace extends events_1.default {
                         }
                     }
                     break;
-                case ('host-failure'):
+                }
+                case ('host-failure'): {
                     // listen for and validate gossiped failures of other hosts neighbors
-                    const hostFailure = message.data;
+                    const failure = message.data;
                     const hostEntry = this.tracker.getEntry(failure.nodeId);
                     if (hostEntry && hostEntry.status) {
                         const hosts = this.tracker.getActiveHosts();
@@ -644,8 +654,10 @@ class Subspace extends events_1.default {
                         }
                     }
                     break;
-                default:
+                }
+                default: {
                     this.emit(message.type, message.data);
+                }
             }
         });
         this.emit('ready');
@@ -719,7 +731,7 @@ class Subspace extends events_1.default {
                 reject(error);
             }
             if (this.bootstrap) {
-                resolve();
+                return resolve();
             }
             // connect to a single gateway node
             const gateways = this.network.getClosestGateways(this.gatewayCount);
