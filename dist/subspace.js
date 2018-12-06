@@ -1767,6 +1767,7 @@ class Subspace extends events_1.default {
     async replicateShards(nodeId) {
         // derive all shards for this host and see if I am the next closest host
         const profile = this.wallet.getProfile();
+        const promises = [];
         for (const [recordId, original] of this.ledger.clearedContracts) {
             const contract = JSON.parse(JSON.stringify(original));
             const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor);
@@ -1777,11 +1778,13 @@ class Subspace extends events_1.default {
                     // and I am last host
                     if (hosts[hosts.length - 1] === profile.id) {
                         // get the shard from the first host
-                        this.requestShard(hosts[0], shardId, recordId);
+                        const promise = await this.requestShard(hosts[0], shardId, recordId);
+                        promises.push(promise);
                     }
                 }
             }
         }
+        await Promise.all(promises);
     }
     async leaveHosts() {
         // leave the host network gracefully, disconnecting from all valid neighbors

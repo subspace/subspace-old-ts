@@ -72,11 +72,11 @@ export default class Subspace extends EventEmitter {
         txRecord: Record;
         contractRecord: Record;
     }>;
-    putContract(txRecord: Record, contractRecord: Record): Promise<{}>;
-    put(content: any, encrypted: boolean): Promise<{}>;
-    get(key: string): Promise<{}>;
-    rev(key: string, update: any): Promise<{}>;
-    del(key: string): Promise<{}>;
+    putContract(txRecord: Record, contractRecord: Record): Promise<void>;
+    put(content: any, encrypted: boolean): Promise<any>;
+    get(key: string): Promise<any>;
+    rev(key: string, update: any): Promise<any>;
+    del(key: string): Promise<void>;
     startFarmer(blockTime?: number): Promise<void>;
     private requestLedger;
     private requestLastBlockId;

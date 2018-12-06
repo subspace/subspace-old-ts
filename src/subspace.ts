@@ -7,6 +7,7 @@ import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISigna
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure, IJoinMessage } from './interfaces'
+import { resolve } from 'dns';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -109,7 +110,7 @@ export default class Subspace extends EventEmitter {
     super()
   }
 
-  private async addRequest(type: string, recordId: string, data: any, hosts: string[]) {
+  private async addRequest(type: string, recordId: string, data: any, hosts: string[]): Promise<void> {
     // generate and send the request
     const message = await this.network.createGenericMessage(`${type}-request`, data)
     for (const host of hosts) {
@@ -120,55 +121,55 @@ export default class Subspace extends EventEmitter {
     this.pendingRequests.set(crypto.getHash(type + recordId), hostSet)
   }
 
-  private async removeRequest(type: string, recordId: string, host: string) {
+  private async removeRequest(type: string, recordId: string, host: string): Promise<void> {
     const key = crypto.getHash(type + recordId)
     const request = this.pendingRequests.get(key)
     request.delete(host)
     this.pendingRequests.set(key, request)
   }
 
-  private resolveRequest(type: string, recordId: string) {
+  private resolveRequest(type: string, recordId: string): Set<string> {
     const key = crypto.getHash(type + recordId)
     const hosts = this.pendingRequests.get(key)
     this.pendingRequests.delete(key)
     return hosts
   }
 
-  private async sendPutResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendPutResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IPutResponse = { valid, reason, key}
     const message: IGenericMessage = await this.network.createGenericMessage('put-reply', response)
     this.send(client, message)
   }
 
-  private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject) {
+  private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject): Promise<void> {
     const response: IGetResponse = { valid, key, reason, record}
     const message = await this.network.createGenericMessage('get-reply', response)
     this.send(client, message)
   }
 
-  private async sendRevResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendRevResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IRevResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('rev-reply', response)
     this.send(client, message)
   }
 
-  private async sendDelResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendDelResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IDelResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('del-reply', response)
     this.send(client, message)
   }
 
-  private async sendContractResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendContractResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IContractResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('contract-reply', response)
     this.send(client, message)
   }
 
-  private getRequestSize(type: string, recordId: string) {
+  private getRequestSize(type: string, recordId: string): number {
     return this.pendingRequests.get(crypto.getHash(type + recordId)).size
   }
 
-  private startMessagePruner() {
+  private startMessagePruner(): void {
     // expire all messages older than 10 minutes, every 10 minutes
     const messagePruningInterval = setInterval(() => {
       const cutoffTime = Date.now() - 600000
@@ -180,7 +181,7 @@ export default class Subspace extends EventEmitter {
     }, 600000)
   }
 
-  public async initEnv() {
+  public async initEnv(): Promise<void> {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
       this.env = 'browser'
@@ -778,7 +779,7 @@ export default class Subspace extends EventEmitter {
     this.emit('ready')
   }
 
-  public async createProfile(options?: IProfileOptions) {
+  public async createProfile(options?: IProfileOptions): Promise<void> {
     // create a new subspace identity
     if(!options) {
       options = {
@@ -790,7 +791,7 @@ export default class Subspace extends EventEmitter {
     await this.wallet.createProfile(options)
   }
 
-  public async deleteProfile() {
+  public async deleteProfile(): Promise<void> {
     // deletes the existing profile on disk
     if (this.wallet.profile.user) {
       await this.wallet.profile.clear()
@@ -1023,7 +1024,7 @@ export default class Subspace extends EventEmitter {
 
   // ledger methods
 
-  public async seedPlot(size: number = DEFAULT_HOST_PLEDGE) {
+  public async seedPlot(size: number = DEFAULT_HOST_PLEDGE): Promise<void> {
     // seed a plot on disk by generating a proof of space
     const profile = this.wallet.getProfile()
     const proof =  crypto.createProofOfSpace(profile.publicKey, size)
@@ -1031,11 +1032,11 @@ export default class Subspace extends EventEmitter {
     this.wallet.profile.proof = proof
   }
 
-  public getBalance(address = this.wallet.profile.user.id) {
+  public getBalance(address = this.wallet.profile.user.id): number {
     return this.ledger.getBalance(address)
   }
 
-  public async sendCredits(amount: number, address: string) {
+  public async sendCredits(amount: number, address: string): Promise<Record> {
     // send subspace credits to another address
     const profile = this.wallet.getProfile()
     const txRecord = await this.ledger.createCreditTx(profile.publicKey, address, amount)
@@ -1047,7 +1048,7 @@ export default class Subspace extends EventEmitter {
     return txRecord
   }
 
-  public async pledgeSpace(interval = DEFAULT_HOST_INTERVAL) {
+  public async pledgeSpace(interval = DEFAULT_HOST_INTERVAL): Promise<Record> {
 
     // creates and submits a pledges as a proof of space to the ledger as a host
 
@@ -1079,7 +1080,7 @@ export default class Subspace extends EventEmitter {
     return txRecord
   }
 
-  private setPaymentTimer() {
+  private setPaymentTimer(): void {
     // called on init
     const pledge = this.wallet.profile.pledge
     // if I have an active pledge, set a timeout to request payment
@@ -1091,7 +1092,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  private async requestHostPayment() {
+  private async requestHostPayment(): Promise<void> {
     // called when payment timer expires
     // requests host payment from the nexus
     const profile = this.wallet.getProfile()
@@ -1113,7 +1114,7 @@ export default class Subspace extends EventEmitter {
     spaceReserved = DEFAULT_CONTRACT_SIZE,
     ttl = DEFAULT_CONTRACT_TTL,
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
-  ) {
+  ): Promise<void> {
     if (ttl) {
       const {txRecord, contractRecord} = await this.createMutableContract(name, email, passphrase, spaceReserved, ttl, replicationFactor)
       await this.putContract(txRecord, contractRecord)
@@ -1127,7 +1128,10 @@ export default class Subspace extends EventEmitter {
     spaceReserved = DEFAULT_CONTRACT_SIZE,
     ttl = DEFAULT_CONTRACT_TTL,
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
-  ) {
+  ): Promise<{
+    txRecord: Record,
+    contractRecord: Record
+  }> {
     // initially called from a subspace full node or console app that is reserving space on behalf of a client
     // later once clients can earn / own credits they could call directly
     // creates a mutable storage contract, backed by an immutable contract tx with a mutable contract state
@@ -1204,7 +1208,7 @@ export default class Subspace extends EventEmitter {
     return {txRecord, contractRecord}
   }
 
-  public putContract(txRecord: Record, contractRecord: Record) {
+  public putContract(txRecord: Record, contractRecord: Record): Promise<void> {
     return new Promise(async (resolve, reject) => {
       // contact the contract holders so they may initialize contract state
       const contract = this.wallet.getPublicContract()
@@ -1295,7 +1299,7 @@ export default class Subspace extends EventEmitter {
 
   // core database methods
 
-  public put(content: any, encrypted: boolean) {
+  public put(content: any, encrypted: boolean): Promise<any> {
     return new Promise( async(resolve, reject) => {
       // create the record, get hosts, and send requests
       const privateContract = this.wallet.getPrivateContract()
@@ -1377,7 +1381,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public get(key: string) {
+  public get(key: string): Promise<any> {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)
@@ -1436,7 +1440,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public rev(key: string, update: any) {
+  public rev(key: string, update: any): Promise<any> {
     return new Promise( async (resolve, reject) => {
       const keyObject = this.database.parseRecordKey(key)
       const publicContract = this.wallet.getPublicContract()
@@ -1530,7 +1534,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public del(key: string) {
+  public del(key: string): Promise<void> {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)
@@ -1606,7 +1610,7 @@ export default class Subspace extends EventEmitter {
 
   // core ledger and farming methods
 
-  public async startFarmer(blockTime?: number) {
+  public async startFarmer(blockTime?: number): Promise<void> {
     // bootstrap or fetch the ledger before starting to farm the chain
 
     if (blockTime) {
@@ -1623,7 +1627,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  private async requestLedger(blockTime: number) {
+  private async requestLedger(blockTime: number): Promise<void> {
     // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
 
     let myLastBlockId = this.ledger.getLastBlockId()
@@ -1656,7 +1660,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async requestLedgerSegment(myLastBlockId: string) {
+  private async requestLedgerSegment(myLastBlockId: string): Promise<Record> {
     // fetch a segment of the ledger based on the current state of the chain from a gateway
 
     const chain = await this.requestChain()
@@ -1702,7 +1706,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async requestLastBlock(blockId: string, previousBlockRecord: Record) {
+  private async requestLastBlock(blockId: string, previousBlockRecord: Record): Promise<Record> {
     // fetches and validates each block header and tx for a given block, applying the block if all are valid
 
     const blockRecord = await this.requestBlockHeader(blockId)
@@ -1790,7 +1794,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async onLedger(blockTime: number, previousBlockRecord: Record) {
+  private async onLedger(blockTime: number, previousBlockRecord: Record): Promise<void> {
     // called once all cleared blocks have been fetched
     // checks for the best pending block then starts the block interval based on last block publish time
 
@@ -1834,7 +1838,7 @@ export default class Subspace extends EventEmitter {
     // create the contract tx for the last block 
   }
 
-  public async getGenesisTime() {
+  public async getGenesisTime(): Promise<number> {
     // get the
     const genesisBlockId = this.ledger.chain[0]
     const genesisBlock =  JSON.parse( await this.storage.get(genesisBlockId))
@@ -1842,7 +1846,7 @@ export default class Subspace extends EventEmitter {
     return genesisRecord.value.createdAt
   }
 
-  private async requestPendingBlock() {
+  private async requestPendingBlock(): Promise<void> {
     const pendingBlockHeader = await this.requestPendingBlockHeader()
     if (pendingBlockHeader) {
       if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
@@ -2015,7 +2019,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public async joinHosts(count: number) {
+  public async joinHosts(count: number): Promise<void> {
     // after seeding and pledging space, join the host network 
     // should add a delay or ensure the tx has been anchored in the ledger 
     // assumes the host already has an entry into the tracker
@@ -2111,9 +2115,10 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async replicateShards(nodeId: string) {
+  private async replicateShards(nodeId: string): Promise<void> {
     // derive all shards for this host and see if I am the next closest host
     const profile = this.wallet.getProfile()
+    const promises = []
     for (const [recordId, original] of this.ledger.clearedContracts) {
       const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
@@ -2124,14 +2129,16 @@ export default class Subspace extends EventEmitter {
           // and I am last host
           if (hosts[hosts.length -1] === profile.id) {
             // get the shard from the first host
-            this.requestShard(hosts[0], shardId, recordId)
+            const promise = await this.requestShard(hosts[0], shardId, recordId)
+            promises.push(promise)
           }
         }
       }
     }
+    await Promise.all(promises)
   }
 
-  public async leaveHosts() {
+  public async leaveHosts(): Promise<void> {
     // leave the host network gracefully, disconnecting from all valid neighbors
     const message = await this.tracker.createLeaveMessage()
     await this.network.gossip(message)
@@ -2146,7 +2153,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public async onHostFailure() {
+  public async onHostFailure(): Promise<void> {
     // listen for and validate disconnection of my host neighbors
 
     this.on('disconnection', async (nodeId: string) => {
