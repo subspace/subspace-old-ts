@@ -2,11 +2,12 @@ import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
 import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback} from '@subspace/network'
-import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
+import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback, CONNECTION_TIMEOUT} from '@subspace/network'
+import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject, IEntryObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
-import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure } from './interfaces'
+import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure, IJoinMessage } from './interfaces'
+import { resolve } from 'dns';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -109,7 +110,7 @@ export default class Subspace extends EventEmitter {
     super()
   }
 
-  private async addRequest(type: string, recordId: string, data: any, hosts: string[]) {
+  private async addRequest(type: string, recordId: string, data: any, hosts: string[]): Promise<void> {
     // generate and send the request
     const message = await this.network.createGenericMessage(`${type}-request`, data)
     for (const host of hosts) {
@@ -120,55 +121,55 @@ export default class Subspace extends EventEmitter {
     this.pendingRequests.set(crypto.getHash(type + recordId), hostSet)
   }
 
-  private async removeRequest(type: string, recordId: string, host: string) {
+  private async removeRequest(type: string, recordId: string, host: string): Promise<void> {
     const key = crypto.getHash(type + recordId)
     const request = this.pendingRequests.get(key)
     request.delete(host)
     this.pendingRequests.set(key, request)
   }
 
-  private resolveRequest(type: string, recordId: string) {
+  private resolveRequest(type: string, recordId: string): Set<string> {
     const key = crypto.getHash(type + recordId)
     const hosts = this.pendingRequests.get(key)
     this.pendingRequests.delete(key)
     return hosts
   }
 
-  private async sendPutResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendPutResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IPutResponse = { valid, reason, key}
     const message: IGenericMessage = await this.network.createGenericMessage('put-reply', response)
     this.send(client, message)
   }
 
-  private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject) {
+  private async sendGetResponse(client: string, valid: boolean, key: string, reason: string, record?: IRecordObject): Promise<void> {
     const response: IGetResponse = { valid, key, reason, record}
     const message = await this.network.createGenericMessage('get-reply', response)
     this.send(client, message)
   }
 
-  private async sendRevResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendRevResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IRevResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('rev-reply', response)
     this.send(client, message)
   }
 
-  private async sendDelResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendDelResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IDelResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('del-reply', response)
     this.send(client, message)
   }
 
-  private async sendContractResponse(client: string, valid: boolean, reason: string, key: string) {
+  private async sendContractResponse(client: string, valid: boolean, reason: string, key: string): Promise<void> {
     const response: IContractResponse = { valid, reason, key}
     const message = await this.network.createGenericMessage('contract-reply', response)
     this.send(client, message)
   }
 
-  private getRequestSize(type: string, recordId: string) {
+  private getRequestSize(type: string, recordId: string): number {
     return this.pendingRequests.get(crypto.getHash(type + recordId)).size
   }
 
-  private startMessagePruner() {
+  private startMessagePruner(): void {
     // expire all messages older than 10 minutes, every 10 minutes
     const messagePruningInterval = setInterval(() => {
       const cutoffTime = Date.now() - 600000
@@ -180,7 +181,7 @@ export default class Subspace extends EventEmitter {
     }, 600000)
   }
 
-  public async initEnv() {
+  public async initEnv(): Promise<void> {
     if (typeof window !== 'undefined') {
       console.log('Browser env detected')
       this.env = 'browser'
@@ -283,13 +284,8 @@ export default class Subspace extends EventEmitter {
     // prune messages every 10 minutes
     this.startMessagePruner()
 
-    this.network.on('join', () => this.emit('join'))
-    this.network.on('leave', () => this.emit('leave'))
-    this.network.on('connection', connection => this.emit('connection', connection.nodeId))
-
-    this.network.on('disconnection', (connection: IConnectionObject) => {
-      this.emit('disconnection', connection.nodeId)
-      const nodeId = Buffer.from(connection.nodeId).toString('hex')
+    this.on('disconnection', (binaryId: Uint8Array) => {
+      const nodeId = Buffer.from(binaryId).toString('hex')
 
       // if hosting, listen for and report on failed hosts
       if (this.isHosting) {
@@ -323,7 +319,7 @@ export default class Subspace extends EventEmitter {
                 // start the failure message 
                 const failureMessage = await this.tracker.createFailureMessage(nodeId)
                 for (const neighbor of neighbors) {
-                  await this.network.send(connection.nodeId, failureMessage)
+                  await this.send(binaryId, failureMessage)
                 }
               }
             }, timeout * 1000)
@@ -357,7 +353,7 @@ export default class Subspace extends EventEmitter {
     })
 
 
-    this.network.on('message', async (message: IMessage, callback) => {
+    this.network.on('message', async (message: IMessage, id: Uint8Array, callback) => {
       console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       let valid = false
       // handle validation for gossiped messages here
@@ -378,18 +374,60 @@ export default class Subspace extends EventEmitter {
         // don't validate tx and blocks until you have the full ledger
         // and are ready to start farming
 
-        case('peer-added'):
+        case 'join-request': {
+          console.log('join request')
+          const connection = this.network.getConnectionFromId(id)
+          if (!await this.network.isValidMessage(message)) {
+            connection.destroy()
+          }
+          const reply = await this.createJoinMessage('join-response')
+          connection.sendRequest(reply)
+          await this.network.activatePendingConnection(<IJoinMessage>message, id)
+          break
+        }
+
+        case 'join-response': {
+          console.log('join response')
+          const callback = this.network.joinResponseCallbacks.get(id)
+          if (callback) {
+            this.network.joinResponseCallbacks.delete(id)
+            await callback(<IJoinMessage>message)
+          }
+          break
+        }
+
+        case 'tracker-request': {
+          const lht = JSON.stringify([...this.tracker.lht])
+          const reply = await this.network.createGenericMessage('tracker-response', lht)
+          await this.send(id, reply)
+          break
+        }
+
+        case 'tracker-response': {
+          const callback = this.network.trackerResponseCallbacks.get(id)
+          if (callback) {
+            this.network.trackerResponseCallbacks.delete(id)
+            callback(<IGenericMessage>message)
+          }
+          break
+        }
+
+        case('peer-added'): {
           peer = (message as IGenericMessage).data
           connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
           connection.peers.push(Buffer.from(peer, 'hex'))
           break
-        case('peer-removed'):
+        }
+          
+        case('peer-removed'): {
           peer = (message as IGenericMessage).data
           connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'))
           const index = connection.peers.indexOf(Buffer.from(peer, 'hex'))
           connection.peers.splice(index, 1)
           break
-        case('tx'):
+        }
+           
+        case('tx'): {
           if (this.ledger.hasLedger) {
             // first ensure we have a valid SSDB record wrapping the tx
             const txRecord = Record.readUnpacked((message as IGenericMessage).data.key, (message as IGenericMessage).data.value)
@@ -405,7 +443,9 @@ export default class Subspace extends EventEmitter {
             }
           }
           break
-        case('block'):
+        }
+          
+        case('block'): {
           if (this.ledger.hasLedger) {
             const blockRecord = Record.readPacked((message as IGenericMessage).data._key, JSON.parse(JSON.stringify((message as IGenericMessage).data._value)))
             await blockRecord.unpack(null)
@@ -423,20 +463,28 @@ export default class Subspace extends EventEmitter {
             this.emit('block', blockRecord)
           }
           break
-        case('gateway-request'):
+        }
+          
+        case('gateway-request'): {
           response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes)
           await this.send(message.sender, response)
           break
-        case('chain-request'):
+        }
+          
+        case('chain-request'): {
           const payload = Buffer.from(JSON.stringify(this.ledger.chain))
           await this.send(message.sender, payload)
           break
-        case('last-block-id-request'):
+        }
+          
+        case('last-block-id-request'): {
           const lastBlockId = this.ledger.getLastBlockId()
           response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId)
           await this.send(message.sender, response)
           break
-        case('block-header-request'):
+        }
+          
+        case('block-header-request'): {
           const blockKey = (message as IGenericMessage).data
           const blockValue = JSON.parse( await this.storage.get(blockKey))
           blockValue.content = JSON.stringify(blockValue.content)
@@ -444,14 +492,18 @@ export default class Subspace extends EventEmitter {
           response = await this.network.createGenericMessage('block-header-reply', block.getRecord())
           await this.send(message.sender, response)
           break
-        case('tx-request'):
+        }
+          
+        case('tx-request'): {
           const txKey = (message as IGenericMessage).data
           const txValue = JSON.parse( await this.storage.get(txKey))
           const tx = Record.readPacked(txKey, txValue)
           response = await this.network.createGenericMessage('tx-reply', tx.getRecord())
           await this.send(message.sender, response)
           break
-        case('pending-block-header-request'):
+        }
+          
+        case('pending-block-header-request'): {
           const pendingBlockId = this.ledger.validBlocks[0]
           if (pendingBlockId) {
             const pendingBlockValue = JSON.parse(JSON.stringify(this.ledger.pendingBlocks.get(pendingBlockId)))
@@ -463,7 +515,9 @@ export default class Subspace extends EventEmitter {
           }
           await this.send(message.sender, response)
           break
-        case('pending-tx-request'):
+        }
+          
+        case('pending-tx-request'): {
           const pendingTxId = (message as IGenericMessage).data
           console.log(pendingTxId)
           const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)))
@@ -476,7 +530,9 @@ export default class Subspace extends EventEmitter {
           response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord())
           await this.send(message.sender, response)
           break
-        case('host-join'):
+        }
+          
+        case('host-join'): {
           // on receipt of join message by each host
           const join: IJoinObject = (message as IGenericMessage).data
           // later add strict validation
@@ -519,7 +575,9 @@ export default class Subspace extends EventEmitter {
             }
           }   
           break
-        case('neighbor-request'):
+        }
+          
+        case('neighbor-request'): {
           // validate a host neighbor request and connect
           let profile = this.wallet.getProfile()
           const requestTest = await this.tracker.isValidNeighborRequest(message)
@@ -565,9 +623,11 @@ export default class Subspace extends EventEmitter {
           const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse)
           await this.send(message.sender, responseMessage)
           break
-        case('shard-request'):
+        }
+          
+        case('shard-request'): {
           const request: IShardRequest = (message as IGenericMessage).data
-          profile = this.wallet.getProfile()
+          const profile = this.wallet.getProfile()
   
           const shardResponse: IShardResponse = {
             valid: false,
@@ -630,9 +690,11 @@ export default class Subspace extends EventEmitter {
           const shardResponseMessage = await this.network.createGenericMessage('shard-reply', response)
           this.send(message.sender, shardResponseMessage)
           break
-        case('host-leave'):
+        }
+          
+        case('host-leave'): {
+          // on receipt of leave message by each host
           const leave: ILeaveObject = (message as IGenericMessage).data
-          profile = this.wallet.getProfile()
     
           // validate the signature
           const unsignedLeave = JSON.parse(JSON.stringify(leave))
@@ -651,7 +713,9 @@ export default class Subspace extends EventEmitter {
             }
           }
           break
-        case('failure-request'):
+        }
+         
+        case('failure-request'): {
           // reply to a failure inquiry regarding one of my neighbors 
 
           const failure = (message as IGenericMessage).data
@@ -667,9 +731,11 @@ export default class Subspace extends EventEmitter {
             }
           }
           break
-        case('host-failure'):
+        }
+          
+        case('host-failure'): {
           // listen for and validate gossiped failures of other hosts neighbors
-          const hostFailure = (message as IGenericMessage).data
+          const failure = (message as IGenericMessage).data
           const hostEntry = this.tracker.getEntry(failure.nodeId)
           if (hostEntry && hostEntry.status) {
             const hosts = this.tracker.getActiveHosts()
@@ -704,15 +770,18 @@ export default class Subspace extends EventEmitter {
             }
           }
           break
-        default:
+        }
+          
+        default: {
           this.emit(message.type, (message as IGenericMessage).data)
+        }
       }
     })
 
     this.emit('ready')
   }
 
-  public async createProfile(options?: IProfileOptions) {
+  public async createProfile(options?: IProfileOptions): Promise<void> {
     // create a new subspace identity
     if(!options) {
       options = {
@@ -724,7 +793,7 @@ export default class Subspace extends EventEmitter {
     await this.wallet.createProfile(options)
   }
 
-  public async deleteProfile() {
+  public async deleteProfile(): Promise<void> {
     // deletes the existing profile on disk
     if (this.wallet.profile.user) {
       await this.wallet.profile.clear()
@@ -733,13 +802,12 @@ export default class Subspace extends EventEmitter {
 
   // core network methods
 
-  public async getGateways(): Promise<void> {
+  public async requestGateways(nodeId: Uint8Array): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
-      // request the latest array of gateway nodes from the first gateway node, merge with your array
+      // request the latest array of gateway nodes another node
 
-      const gateway = this.network.getClosestGateways(1)[0]
       const message = await this.network.createGenericMessage('gateway-request')
-      await this.send(gateway.nodeId, message)
+      await this.send(nodeId, message)
 
       this.once('gateway-reply', (message: IGatewayNodeObject[]) => {
         const newGateways: Set<IGatewayNodeObject> = new Set(message)
@@ -751,57 +819,166 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public async join(myTcpPort = 8124, myAddress: 'localhost'): Promise<void> {
-    return new Promise<void>( async (resolve, reject) => {
-      // join the subspace network as a node, connecting to some known gateway nodes
-      // currently connects to a signle know gateway and then fetches existing nodes from it
+  private async createJoinMessage(type: 'join-request' | 'join-response'): Promise<IJoinMessage> {
+    // create a signed join message as part of connection handshake
 
-      // connect to the first gateway
-      await this.network.join(myTcpPort, myAddress)
+    const profile = this.wallet.getProfile()
 
-      if (this.bootstrap) {
-        return resolve()
+    let message: IJoinMessage = {
+      version: 0,
+      type,
+      isGateway: this.isGateway,
+      address: this.network.myAddress,
+      tcpPort: this.network.myTcpPort,
+      wsPort: this.network.myWsPort,
+      publicKey: profile.publicKey,
+      sender: profile.id,
+      timestamp: Date.now(),
+      peers: this.network.getPeers(),
+      signature: null
+    }
+
+    message.signature = await crypto.sign(message, profile.privateKeyObject)
+    return message
+  }
+
+  private async connectToGateways(): Promise <IConnectionObject> {
+      // connect to the closest M gateway nodes from N known nodes
+
+      let count = this.gatewayCount
+      const gateways = this.network.getClosestGateways(count)
+      for (const gateway of gateways) {
+        const joinMessage = await this.createJoinMessage('join-request')
+        const connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
+        if (connection) {
+          --count
+        } else {
+          throw(new Error('Error connecting to gateway node'))
+        }
+
+        if (!count) {
+          return(connection)
+        }  
       }
+  }
 
-      // get all active gateways
-      await this.getGateways()
+  public async connectToAllGateways(): Promise<void> {
+    // connect to all known gateway nodes (for small network testing with full mesh)
 
-      // connect to each not already connected to, up to gateway count
-      const gateways = this.network.getGateways()
-      const peers = this.network.getPeers()
-      
-      for (const gateway of this.network.gatewayNodes) {
-        if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-          await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
-          const connectedGatewayCount = this.network.getGateways().length
-          if (connectedGatewayCount === this.gatewayCount) {
-            this.emit('join')
-            resolve()
-          }
+    const peers = this.network.getPeers()
+          
+    for (const gateway of this.network.gatewayNodes) {
+      if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
+        const joinMessage = await this.createJoinMessage('join-request')
+        await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
+        const connectedGatewayCount = this.network.getGateways().length
+        if (connectedGatewayCount === this.gatewayCount) {
+          return 
+        }
+      }
+    }
+  }
+
+  public async join(myTcpPort = 8124, myAddress: 'localhost', myWsPort?: number): Promise<void> {
+      // join the subspace network as a node, connecting to some known gateway nodes
+
+      // listen for new incoming connections
+      if (this.env === 'gateway' || this.env === 'private-host') {
+        await this.network.startTcpServer(myTcpPort, myAddress)
+        this.network.myAddress = myAddress
+        this.network.myTcpPort = myTcpPort
+
+        if (myWsPort) {
+          await this.network.startWsServer('0.0.0.0', myWsPort)
+          this.network.myWsPort = myWsPort
         }
       }
 
-      resolve()
+      // reject if trying to bootstrap and not a gateway
+      if (this.bootstrap && this.env !== 'gateway') {
+        throw new Error('Only a gateway node may bootstrap the network')
+      } 
 
+      // resolve if trying to bootstrap as genesis gateway
+      if (this.bootstrap) {
+        return
+      }
 
-    })
+      // if joining the network as a subsequent gateway
+      const gatewayConnection = await this.connectToGateways()
+      const tracker = await this.requestTracker(gatewayConnection.nodeId)
+      this.tracker.loadLht(tracker)
+      this.network.computeNetworkGraph()
+      await this.requestGateways(gatewayConnection.nodeId)
+      this.emit('joined')
+      return
   }
 
-  public async leave() {
+  public leave(): void {
     // leave the subspace network, disconnecting from all peers
-    await this.network.leave()
-    this.emit('leave')
+
+    this.network.connections.forEach((connection) => {
+      // should you send a leave message for graceful shutdown?
+      this.disconnect(connection.nodeId)
+    })
+
+    this.emit('left')
   }
 
-  public async connect(nodeId: string) {
+  public async connect(nodeId: Uint8Array): Promise<IConnectionObject> {
     // connect to another node directly as a peer
-    await this.network.connect(Buffer.from(nodeId, 'hex'))
+
+    const nodeIdString = Buffer.from(nodeId).toString('hex')
+    let connection: IConnectionObject
+
+    if (this.network.isPeer(nodeIdString)) {
+      connection = this.network.getConnectionFromId(nodeId)
+    }
+
+    if (this.network.isGatewayNode(nodeIdString)) {
+      const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0]
+      const joinMessage = await this.createJoinMessage('join-request')
+      connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
+    }
+
+    if (this.tracker.hasEntry(nodeIdString)) {
+      const host = this.tracker.getEntry(nodeIdString)
+      if (host.status && host.isGateway) {
+        const joinMessage = await this.createJoinMessage('join-request')
+        connection = await this.network.connectToGateway(nodeId, host.publicIp, host.tcpPort, joinMessage)
+      } else if (host.status) {
+        // TODO: `validHosts` shouldn't be `[]`, fix this
+        const neighbors = this.tracker.getNeighbors(nodeIdString, [])
+        const public_neighbors = neighbors
+          .filter((node: any) => node.isGateway)
+          .map((node: any) => node.public_ip)
+
+        if (neighbors.length) {
+          // may want to find closest to you or closest to host by distance
+          for (let neighborId in public_neighbors) {
+            const neighbor = this.tracker.getEntry(neighborId)
+            const joinMessage = await this.createJoinMessage('join-request')
+            connection = await this.network.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, joinMessage)
+            // relay signalling info here
+            // connect over tcp or wrtc
+            return
+          }
+        }
+      }
+    }
+    this.emit('connection', connection.nodeId)
+    return connection 
   }
 
-  public async disconnect(nodeId: string) {
+  public disconnect(nodeId: Uint8Array): void {
     // disconnect from another node as a peer
-    await this.network.disconnect(Buffer.from(nodeId, 'hex'))
-    this.emit('disconnection')
+
+    const connection = this.network.connections.get(nodeId)
+    if (connection) {
+      connection.destroy()
+      this.network.removeNodeFromGraph(connection.nodeId)
+      this.emit('disconnection', nodeId)
+    }
   }
 
   public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
@@ -809,6 +986,14 @@ export default class Subspace extends EventEmitter {
   public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
   public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
   public async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
+
+    // Not sure how to add this back in here
+    // need to check if a connection exists, else try to connect before sending
+
+    // if (!connection) {
+    //   connection = await this.connect(nodeId)
+    // }
+
     if (nodeId instanceof Uint8Array) {
       if (message instanceof Uint8Array) {
         await this.network.send(nodeId, message, callback)
@@ -824,9 +1009,9 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  // ledger tx methods
+  // ledger methods
 
-  public async seedPlot(size: number = DEFAULT_HOST_PLEDGE) {
+  public async seedPlot(size: number = DEFAULT_HOST_PLEDGE): Promise<void> {
     // seed a plot on disk by generating a proof of space
     const profile = this.wallet.getProfile()
     const proof =  crypto.createProofOfSpace(profile.publicKey, size)
@@ -834,11 +1019,11 @@ export default class Subspace extends EventEmitter {
     this.wallet.profile.proof = proof
   }
 
-  public getBalance(address = this.wallet.profile.user.id) {
+  public getBalance(address = this.wallet.profile.user.id): number {
     return this.ledger.getBalance(address)
   }
 
-  public async sendCredits(amount: number, address: string) {
+  public async sendCredits(amount: number, address: string): Promise<Record> {
     // send subspace credits to another address
     const profile = this.wallet.getProfile()
     const txRecord = await this.ledger.createCreditTx(profile.publicKey, address, amount)
@@ -850,7 +1035,7 @@ export default class Subspace extends EventEmitter {
     return txRecord
   }
 
-  public async pledgeSpace(interval = DEFAULT_HOST_INTERVAL) {
+  public async pledgeSpace(interval = DEFAULT_HOST_INTERVAL): Promise<Record> {
 
     // creates and submits a pledges as a proof of space to the ledger as a host
 
@@ -882,7 +1067,7 @@ export default class Subspace extends EventEmitter {
     return txRecord
   }
 
-  private setPaymentTimer() {
+  private setPaymentTimer(): void {
     // called on init
     const pledge = this.wallet.profile.pledge
     // if I have an active pledge, set a timeout to request payment
@@ -894,7 +1079,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  private async requestHostPayment() {
+  private async requestHostPayment(): Promise<void> {
     // called when payment timer expires
     // requests host payment from the nexus
     const profile = this.wallet.getProfile()
@@ -916,7 +1101,7 @@ export default class Subspace extends EventEmitter {
     spaceReserved = DEFAULT_CONTRACT_SIZE,
     ttl = DEFAULT_CONTRACT_TTL,
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
-  ) {
+  ): Promise<void> {
     if (ttl) {
       const {txRecord, contractRecord} = await this.createMutableContract(name, email, passphrase, spaceReserved, ttl, replicationFactor)
       await this.putContract(txRecord, contractRecord)
@@ -930,7 +1115,10 @@ export default class Subspace extends EventEmitter {
     spaceReserved = DEFAULT_CONTRACT_SIZE,
     ttl = DEFAULT_CONTRACT_TTL,
     replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
-  ) {
+  ): Promise<{
+    txRecord: Record,
+    contractRecord: Record
+  }> {
     // initially called from a subspace full node or console app that is reserving space on behalf of a client
     // later once clients can earn / own credits they could call directly
     // creates a mutable storage contract, backed by an immutable contract tx with a mutable contract state
@@ -1007,7 +1195,7 @@ export default class Subspace extends EventEmitter {
     return {txRecord, contractRecord}
   }
 
-  public putContract(txRecord: Record, contractRecord: Record) {
+  public putContract(txRecord: Record, contractRecord: Record): Promise<void> {
     return new Promise(async (resolve, reject) => {
       // contact the contract holders so they may initialize contract state
       const contract = this.wallet.getPublicContract()
@@ -1098,7 +1286,7 @@ export default class Subspace extends EventEmitter {
 
   // core database methods
 
-  public put(content: any, encrypted: boolean) {
+  public put(content: any, encrypted: boolean): Promise<any> {
     return new Promise( async(resolve, reject) => {
       // create the record, get hosts, and send requests
       const privateContract = this.wallet.getPrivateContract()
@@ -1180,7 +1368,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public get(key: string) {
+  public get(key: string): Promise<any> {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)
@@ -1239,7 +1427,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public rev(key: string, update: any) {
+  public rev(key: string, update: any): Promise<any> {
     return new Promise( async (resolve, reject) => {
       const keyObject = this.database.parseRecordKey(key)
       const publicContract = this.wallet.getPublicContract()
@@ -1333,7 +1521,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public del(key: string) {
+  public del(key: string): Promise<void> {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)
@@ -1409,7 +1597,7 @@ export default class Subspace extends EventEmitter {
 
   // core ledger and farming methods
 
-  public async startFarmer(blockTime?: number) {
+  public async startFarmer(blockTime?: number): Promise<void> {
     // bootstrap or fetch the ledger before starting to farm the chain
 
     if (blockTime) {
@@ -1421,23 +1609,23 @@ export default class Subspace extends EventEmitter {
       this.ledger.isFarming = true
       await this.ledger.bootstrap()
     } else {
-      await this.getLedger(blockTime)
+      await this.requestLedger(blockTime)
       this.ledger.isFarming = true
     }
   }
 
-  private async getLedger(blockTime: number) {
+  private async requestLedger(blockTime: number): Promise<void> {
     // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
 
     let myLastBlockId = this.ledger.getLastBlockId()
-    let gatewayLastBlockId = await this.getLastBlockId()
+    let gatewayLastBlockId = await this.requestLastBlockId()
 
     let previousBlockRecord: Record = null
     while (myLastBlockId !== gatewayLastBlockId) {
       console.log('Getting ledger segment')
-      previousBlockRecord = await this.getLedgerSegment(myLastBlockId)
+      previousBlockRecord = await this.requestLedgerSegment(myLastBlockId)
       myLastBlockId = this.ledger.getLastBlockId()
-      gatewayLastBlockId = await this.getLastBlockId()
+      gatewayLastBlockId = await this.requestLastBlockId()
     }
 
     console.log('Got full ledger')
@@ -1445,7 +1633,7 @@ export default class Subspace extends EventEmitter {
     await this.onLedger(blockTime, previousBlockRecord)
   }
 
-  private getLastBlockId(): Promise<string> {
+  private requestLastBlockId(): Promise<string> {
     return new Promise<string> ( async (resolve, reject) => {
       // rpc method to retrieve the last block id (head) of the ledger from a gateway node
 
@@ -1459,16 +1647,16 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getLedgerSegment(myLastBlockId: string) {
+  private async requestLedgerSegment(myLastBlockId: string): Promise<Record> {
     // fetch a segment of the ledger based on the current state of the chain from a gateway
 
-    const chain = await this.getChain()
+    const chain = await this.requestChain()
     let previousBlockRecord: Record = null
     if (!myLastBlockId) {
       // get the chain from genesis block
       console.log('getting chain from genesis block')
       for (const blockId of chain) {
-        previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+        previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord)
       }
     }  else {
       // get the chain from my last block
@@ -1483,7 +1671,7 @@ export default class Subspace extends EventEmitter {
       for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
         blockId = chain[i]
         if (blockId) {
-          previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+          previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord)
         }
       }
     }
@@ -1491,7 +1679,7 @@ export default class Subspace extends EventEmitter {
     return previousBlockRecord
   }
 
-  private getChain(): Promise<string[]> {
+  private requestChain(): Promise<string[]> {
     return new Promise<string[]>( async (resolve, reject) => {
       // rpc method to fetch the chain (array of blockHeaderIds) from a gateway node
 
@@ -1505,10 +1693,10 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getLastBlock(blockId: string, previousBlockRecord: Record) {
+  private async requestLastBlock(blockId: string, previousBlockRecord: Record): Promise<Record> {
     // fetches and validates each block header and tx for a given block, applying the block if all are valid
 
-    const blockRecord = await this.getBlockHeader(blockId)
+    const blockRecord = await this.requestBlockHeader(blockId)
     const blockRecordTest = await blockRecord.isValid()
     if (!blockRecordTest.valid) {
       throw new Error(blockRecordTest.reason)
@@ -1531,7 +1719,7 @@ export default class Subspace extends EventEmitter {
     }
 
     for (const txId of block.value.txSet) {
-      const txRecord = await this.getTx(txId)
+      const txRecord = await this.requestTx(txId)
       // validate the tx record
       const txRecordTest = await txRecord.isValid()
       if (!txRecordTest.valid) {
@@ -1551,7 +1739,7 @@ export default class Subspace extends EventEmitter {
     return blockRecord
   }
 
-  private getBlockHeader(blockId: string): Promise<Record> {
+  private requestBlockHeader(blockId: string): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // RPC method to get a cleared block header from a gateway node
 
@@ -1572,7 +1760,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private getTx(txId: string): Promise<Record> {
+  private requestTx(txId: string): Promise<Record> {
     return new Promise<Record>( async (resolve, reject) => {
       // rpc method to get a cleared tx from a gateway node
 
@@ -1593,7 +1781,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async onLedger(blockTime: number, previousBlockRecord: Record) {
+  private async onLedger(blockTime: number, previousBlockRecord: Record): Promise<void> {
     // called once all cleared blocks have been fetched
     // checks for the best pending block then starts the block interval based on last block publish time
 
@@ -1632,12 +1820,12 @@ export default class Subspace extends EventEmitter {
       }
     }, timeRemaining)
 
-    await this.getPendingBlock()
+    await this.requestPendingBlock()
 
     // create the contract tx for the last block 
   }
 
-  public async getGenesisTime() {
+  public async getGenesisTime(): Promise<number> {
     // get the
     const genesisBlockId = this.ledger.chain[0]
     const genesisBlock =  JSON.parse( await this.storage.get(genesisBlockId))
@@ -1645,14 +1833,14 @@ export default class Subspace extends EventEmitter {
     return genesisRecord.value.createdAt
   }
 
-  private async getPendingBlock() {
-    const pendingBlockHeader = await this.getPendingBlockHeader()
+  private async requestPendingBlock(): Promise<void> {
+    const pendingBlockHeader = await this.requestPendingBlockHeader()
     if (pendingBlockHeader) {
       if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
         // fetch each tx from gateway mem pool 
         console.log(pendingBlockHeader.value.content.txSet)
         for (const txId of pendingBlockHeader.value.content.txSet) {
-          const pendingTxRecord = await this.getPendingTx(txId)
+          const pendingTxRecord = await this.requestPendingTx(txId)
           const txRecordTest = await pendingTxRecord.isValid()
 
           // validate the tx record
@@ -1676,7 +1864,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  private async getPendingBlockHeader(): Promise<Record> {
+  private async requestPendingBlockHeader(): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // rpc method to fetch the most valid pending block from a gateway node
       const request = await this.network.createGenericMessage('pending-block-header-request')
@@ -1694,7 +1882,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getPendingTx(txId: string): Promise<Record> {
+  private async requestPendingTx(txId: string): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // rpc method to fetch a pending tx from a gateway node
 
@@ -1715,6 +1903,44 @@ export default class Subspace extends EventEmitter {
   }
 
   // host methods
+
+  public requestTrackerHash(nodeId: Uint8Array): Promise<string> {
+    return new Promise(async (resolve) => {
+
+      const message = await this.network.createGenericMessage('get-tracker-hash')
+      await this.send(nodeId, message)
+
+      this.once('got-tracker-hash', (hash, from_id) => {
+        if (nodeId === from_id) {
+          resolve(hash)
+        }
+      })
+    })
+  }
+
+  public requestTracker(nodeId: Uint8Array): Promise<any> {
+    return new Promise<any> ( async (resolve, reject) => {
+      const message = await this.network.createGenericMessage('tracker-request')
+      await this.send(nodeId, message)
+
+      this.network.trackerResponseCallbacks.set(
+        nodeId,
+        (message: IGenericMessage): void => {
+          resolve(message.data)
+        }
+      )
+
+      // Reject connection that takes too long
+      setTimeout(
+        () => {
+          this.network.trackerResponseCallbacks.delete(nodeId)
+          reject()
+        },
+        CONNECTION_TIMEOUT * 1000
+      )
+    })
+  }
+
   public async connectToNeighbor(nodeId:string): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
       // send a connection request to a valid neighbor
@@ -1780,9 +2006,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  
-
-  public async joinHosts(count: number) {
+  public async joinHosts(count: number): Promise<void> {
     // after seeding and pledging space, join the host network 
     // should add a delay or ensure the tx has been anchored in the ledger 
     // assumes the host already has an entry into the tracker
@@ -1829,7 +2053,7 @@ export default class Subspace extends EventEmitter {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts
         if (hosts.includes(profile.id)) {
           const furthestHost = hosts[hosts.length - 1]
-          promises.push(this.getShard(furthestHost, shardId, recordId))
+          promises.push(this.requestShard(furthestHost, shardId, recordId))
         }
       }
     }
@@ -1837,9 +2061,8 @@ export default class Subspace extends EventEmitter {
     await Promise.all(promises)
 
     // compile signatures, create and gossip the join messsage 
-    const publicIP = `${this.network.myAddress}:${this.network.myTcpPort}:${this.network.myWsPort}`
     const signatures = [...this.neighborProofs.values()]
-    const joinMessage = await this.tracker.createJoinMessage(publicIP, this.isGateway, signatures)
+    const joinMessage = await this.tracker.createJoinMessage(this.network.myAddress, this.network.myTcpPort, this.network.myWsPort, this.isGateway, signatures)
     await this.network.gossip(joinMessage)
     this.tracker.updateEntry(joinMessage.data)
     this.isHosting = true
@@ -1847,7 +2070,7 @@ export default class Subspace extends EventEmitter {
 
   }
 
-  public async getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void> {
+  public async requestShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
       // get shard from another host after joining the host network
       // corner case, what if two hosts try to take over the same shard at the same time?
@@ -1879,9 +2102,10 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async replicateShards(nodeId: string) {
+  private async replicateShards(nodeId: string): Promise<void> {
     // derive all shards for this host and see if I am the next closest host
     const profile = this.wallet.getProfile()
+    const promises = []
     for (const [recordId, original] of this.ledger.clearedContracts) {
       const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
@@ -1892,46 +2116,31 @@ export default class Subspace extends EventEmitter {
           // and I am last host
           if (hosts[hosts.length -1] === profile.id) {
             // get the shard from the first host
-            this.getShard(hosts[0], shardId, recordId)
+            const promise = await this.requestShard(hosts[0], shardId, recordId)
+            promises.push(promise)
           }
         }
       }
     }
+    await Promise.all(promises)
   }
 
-  public async leaveHosts() {
+  public async leaveHosts(): Promise<void> {
     // leave the host network gracefully, disconnecting from all valid neighbors
     const message = await this.tracker.createLeaveMessage()
     await this.network.gossip(message)
     this.isHosting = false
     this.neighbors.clear()
-    await this.network.leaveHosts()
 
-    // on receipt of leave message by each host
-    this.network.on('host-leave', async (message: IHostMessage) => {
-      const leave: ILeaveObject = message.data
-      const profile = this.wallet.getProfile()
-
-      // validate the signature
-      const unsignedLeave = JSON.parse(JSON.stringify(leave))
-      unsignedLeave.signature = null
-      if (await crypto.isValidSignature(leave, leave.signature, message.publicKey)) {
-        const entry = this.tracker.getEntry(message.sender)
-        if (entry && entry.status) {
-          // valid leave, gossip back out
-          await this.network.gossip(message, Buffer.from(message.sender, 'hex'))
-
-          // see if I need to replicate any shards for this host
-          this.replicateShards(message.sender)
-
-          // deactivate the node in the tracker after computing shards
-          this.tracker.updateEntry(leave)
-        }
+    // 
+    this.network.connections.forEach((connection) => {
+      for (const neighbor of this.neighbors) {
+        this.disconnect(Buffer.from(neighbor, 'hex'))
       }
     })
   }
 
-  public async onHostFailure() {
+  public async onHostFailure(): Promise<void> {
     // listen for and validate disconnection of my host neighbors
 
     this.on('disconnection', async (nodeId: string) => {
@@ -2051,6 +2260,6 @@ export default class Subspace extends EventEmitter {
       }
     })
     this.neighbors.clear
-    await this.network.leaveHosts()    
+    await this.leaveHosts()    
   }
 }
