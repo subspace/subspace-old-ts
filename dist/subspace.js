@@ -308,6 +308,7 @@ class Subspace extends events_1.default {
                 // don't validate tx and blocks until you have the full ledger
                 // and are ready to start farming
                 case 'join-request': {
+                    console.log('join request');
                     const connection = this.network.getConnectionFromId(id);
                     if (!await this.network.isValidMessage(message)) {
                         connection.destroy();
@@ -318,6 +319,7 @@ class Subspace extends events_1.default {
                     break;
                 }
                 case 'join-response': {
+                    console.log('join response');
                     const callback = this.network.joinResponseCallbacks.get(id);
                     if (callback) {
                         this.network.joinResponseCallbacks.delete(id);
@@ -713,27 +715,23 @@ class Subspace extends events_1.default {
         message.signature = await crypto.sign(message, profile.privateKeyObject);
         return message;
     }
-    connectToGateways() {
-        return new Promise(async (resolve, reject) => {
-            // connect to the closest M gateway nodes from N known nodes
-            let count = this.gatewayCount;
-            const gateways = this.network.getClosestGateways(count);
-            for (const gateway of gateways) {
-                const joinMessage = await this.createJoinMessage('join-request');
-                this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
-                    .then(async (connection) => {
-                    if (connection) {
-                        --count;
-                    }
-                    else {
-                        reject(new Error('Error connecting to gateway node'));
-                    }
-                    if (!count) {
-                        resolve(connection);
-                    }
-                });
+    async connectToGateways() {
+        // connect to the closest M gateway nodes from N known nodes
+        let count = this.gatewayCount;
+        const gateways = this.network.getClosestGateways(count);
+        for (const gateway of gateways) {
+            const joinMessage = await this.createJoinMessage('join-request');
+            const connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+            if (connection) {
+                --count;
             }
-        });
+            else {
+                throw (new Error('Error connecting to gateway node'));
+            }
+            if (!count) {
+                return (connection);
+            }
+        }
     }
     connectToAllGateways() {
         return new Promise(async (resolve, reject) => {

@@ -375,6 +375,7 @@ export default class Subspace extends EventEmitter {
         // and are ready to start farming
 
         case 'join-request': {
+          console.log('join request')
           const connection = this.network.getConnectionFromId(id)
           if (!await this.network.isValidMessage(message)) {
             connection.destroy()
@@ -386,6 +387,7 @@ export default class Subspace extends EventEmitter {
         }
 
         case 'join-response': {
+          console.log('join response')
           const callback = this.network.joinResponseCallbacks.get(id)
           if (callback) {
             this.network.joinResponseCallbacks.delete(id)
@@ -840,28 +842,24 @@ export default class Subspace extends EventEmitter {
     return message
   }
 
-  private connectToGateways(): Promise <IConnectionObject> {
-    return new Promise<IConnectionObject> ( async (resolve, reject) => {
+  private async connectToGateways(): Promise <IConnectionObject> {
       // connect to the closest M gateway nodes from N known nodes
 
       let count = this.gatewayCount
       const gateways = this.network.getClosestGateways(count)
       for (const gateway of gateways) {
         const joinMessage = await this.createJoinMessage('join-request')
-        this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
-          .then(async (connection) => {
-            if (connection) {
-              --count
-            } else {
-              reject(new Error('Error connecting to gateway node'))
-            }
+        const connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
+        if (connection) {
+          --count
+        } else {
+          throw(new Error('Error connecting to gateway node'))
+        }
 
-            if (!count) {
-              resolve(connection)
-            }  
-          })
+        if (!count) {
+          return(connection)
+        }  
       }
-    })
   }
 
   public connectToAllGateways(): Promise<void> {
