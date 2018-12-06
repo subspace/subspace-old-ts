@@ -799,13 +799,12 @@ export default class Subspace extends EventEmitter {
 
   // core network methods
 
-  public async requestGateways(): Promise<void> {
+  public async requestGateways(nodeId: Uint8Array): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
-      // request the latest array of gateway nodes from the first gateway node, merge with your array
+      // request the latest array of gateway nodes another node
 
-      const gateway = this.network.getClosestGateways(1)[0]
       const message = await this.network.createGenericMessage('gateway-request')
-      await this.send(gateway.nodeId, message)
+      await this.send(nodeId, message)
 
       this.once('gateway-reply', (message: IGatewayNodeObject[]) => {
         const newGateways: Set<IGatewayNodeObject> = new Set(message)
@@ -818,6 +817,8 @@ export default class Subspace extends EventEmitter {
   }
 
   private async createJoinMessage(type: 'join-request' | 'join-response'): Promise<IJoinMessage> {
+    // create a signed join message as part of connection handshake
+
     const profile = this.wallet.getProfile()
 
     let message: IJoinMessage = {
@@ -838,64 +839,34 @@ export default class Subspace extends EventEmitter {
     return message
   }
 
-  public async join(myTcpPort = 8124, myAddress: 'localhost', myWsPort?: number): Promise<void> {
-    return new Promise<void>( async (resolve, reject) => {
-      // join the subspace network as a node, connecting to some known gateway nodes
-      // currently connects to a signle know gateway and then fetches existing nodes from it
+  private connectToGateways(): Promise <IConnectionObject> {
+    return new Promise<IConnectionObject> ( async (resolve, reject) => {
+      // connect to the closest M gateway nodes from N known nodes
 
-      if (this.env === 'gateway' || this.env === 'private-host') {
-        await this.network.startTcpServer(myTcpPort, myAddress)
-        this.network.myAddress = myAddress
-        this.network.myTcpPort = myTcpPort
-      }
-
-      if (myWsPort) {
-        await this.network.startWsServer('0.0.0.0', myWsPort)
-        this.network.myWsPort = myWsPort
-      }
-
-      if (this.bootstrap && this.env !== 'gateway') {
-        const error = 'Only a gateway node may bootstrap the network'
-        reject(error)
-      }
-
-      if (this.bootstrap) {
-        return resolve()
-      }
-
-      // connect to a single gateway node
-
-      const gateways = this.network.getClosestGateways(this.gatewayCount)
       let count = this.gatewayCount
+      const gateways = this.network.getClosestGateways(count)
       for (const gateway of gateways) {
-        const requestMessage = await this.createJoinMessage('join-request')
-        this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, requestMessage)
+        const joinMessage = await this.createJoinMessage('join-request')
+        this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
           .then(async (connection) => {
-            if (!connection) {
+            if (connection) {
               --count
-              if (!count) {
-                reject(new Error('Error connecting to last gateway, request timed out'))
-              }
-              return
+            } else {
+              reject(new Error('Error connecting to gateway node'))
             }
-            const tracker = await this.getTracker(connection.nodeId)
-            this.tracker.loadLht(tracker)
-            this.network.computeNetworkGraph()
-            // send a ready event
-            // disconnect from some number of gateways?
-            this.emit('connected')
-            resolve()
+
+            if (!count) {
+              resolve(connection)
+            }  
           })
       }
+    })
+  }
 
-      // fetch the new list of gateways 
+  public connectToAllGateways(): Promise<void> {
+    return new Promise<void> (async (resolve, reject) => {
+      // connect to all known gateway nodes (for small network testing with full mesh)
 
-      // get all active gateways
-      await this.requestGateways()
-
-      // connect to each not already connected to, up to gateway count (full mesh)
-
-      const allGateways = this.network.getGateways()
       const peers = this.network.getPeers()
             
       for (const gateway of this.network.gatewayNodes) {
@@ -904,31 +875,66 @@ export default class Subspace extends EventEmitter {
           await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
           const connectedGatewayCount = this.network.getGateways().length
           if (connectedGatewayCount === this.gatewayCount) {
-            this.emit('join')
-            resolve()
+            return resolve()
           }
         }
       }
+    })
+  }
 
+  public async join(myTcpPort = 8124, myAddress: 'localhost', myWsPort?: number): Promise<void> {
+    return new Promise<void>( async (resolve, reject) => {
+      // join the subspace network as a node, connecting to some known gateway nodes
+
+      // listen for new incoming connections
+      if (this.env === 'gateway' || this.env === 'private-host') {
+        await this.network.startTcpServer(myTcpPort, myAddress)
+        this.network.myAddress = myAddress
+        this.network.myTcpPort = myTcpPort
+
+        if (myWsPort) {
+          await this.network.startWsServer('0.0.0.0', myWsPort)
+          this.network.myWsPort = myWsPort
+        }
+      }
+
+      // reject if trying to bootstrap and not a gateway
+      if (this.bootstrap && this.env !== 'gateway') {
+        return reject('Only a gateway node may bootstrap the network')
+      } 
+
+      // resolve if trying to bootstrap as genesis gateway
+      if (this.bootstrap) {
+        return resolve()
+      }
+
+      // if joining the network as a subsequent gateway
+      const gatewayConnection = await this.connectToGateways()
+      const tracker = await this.getTracker(gatewayConnection.nodeId)
+      this.tracker.loadLht(tracker)
+      this.network.computeNetworkGraph()
+      await this.requestGateways(gatewayConnection.nodeId)
       resolve()
-
+      this.emit('joined')
     })
   }
 
   public leave(): void {
     // leave the subspace network, disconnecting from all peers
+
     this.network.connections.forEach((connection) => {
       // should you send a leave message for graceful shutdown?
       this.disconnect(connection.nodeId)
     })
 
-    this.emit('leave')
+    this.emit('left')
   }
 
   public async connect(nodeId: Uint8Array): Promise<IConnectionObject> {
-    // connect to another node directly as a peer
-    const nodeIdString = Buffer.from(nodeId).toString('hex')
     return new Promise<IConnectionObject>(async (resolve, reject) => {
+      // connect to another node directly as a peer
+
+      const nodeIdString = Buffer.from(nodeId).toString('hex')
       try {
         let connection: IConnectionObject
 
@@ -978,6 +984,7 @@ export default class Subspace extends EventEmitter {
 
   public disconnect(nodeId: Uint8Array): void {
     // disconnect from another node as a peer
+    
     const connection = this.network.connections.get(nodeId)
     if (connection) {
       connection.destroy()
@@ -1014,7 +1021,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  // ledger tx methods
+  // ledger methods
 
   public async seedPlot(size: number = DEFAULT_HOST_PLEDGE) {
     // seed a plot on disk by generating a proof of space
@@ -1906,6 +1913,20 @@ export default class Subspace extends EventEmitter {
 
   // host methods
 
+  public getTrackerHash(nodeId: Uint8Array): Promise<string> {
+    return new Promise(async (resolve) => {
+
+      const message = await this.network.createGenericMessage('get-tracker-hash')
+      await this.send(nodeId, message)
+
+      this.once('got-tracker-hash', (hash, from_id) => {
+        if (nodeId === from_id) {
+          resolve(hash)
+        }
+      })
+    })
+  }
+
   public getTracker(nodeId: Uint8Array): Promise<any> {
     return new Promise<any> ( async (resolve, reject) => {
       const message = await this.network.createGenericMessage('tracker-request')
@@ -1926,20 +1947,6 @@ export default class Subspace extends EventEmitter {
         },
         CONNECTION_TIMEOUT * 1000
       )
-    })
-  }
-
-  public getTrackerHash(nodeId: Uint8Array): Promise<string> {
-    return new Promise(async (resolve) => {
-
-      const message = await this.network.createGenericMessage('get-tracker-hash')
-      await this.send(nodeId, message)
-
-      this.once('got-tracker-hash', (hash, from_id) => {
-        if (nodeId === from_id) {
-          resolve(hash)
-        }
-      })
     })
   }
 

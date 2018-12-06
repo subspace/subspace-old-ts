@@ -49,8 +49,10 @@ export default class Subspace extends EventEmitter {
     init(env: string, gateway: boolean, path?: string): Promise<void>;
     createProfile(options?: IProfileOptions): Promise<void>;
     deleteProfile(): Promise<void>;
-    requestGateways(): Promise<void>;
+    requestGateways(nodeId: Uint8Array): Promise<void>;
     private createJoinMessage;
+    private connectToGateways;
+    connectToAllGateways(): Promise<void>;
     join(myTcpPort: number, myAddress: 'localhost', myWsPort?: number): Promise<void>;
     leave(): void;
     connect(nodeId: Uint8Array): Promise<IConnectionObject>;
@@ -89,8 +91,8 @@ export default class Subspace extends EventEmitter {
     private getPendingBlockHeader;
     private getPendingTx;
     stopFarmer(): void;
-    getTracker(nodeId: Uint8Array): Promise<any>;
     getTrackerHash(nodeId: Uint8Array): Promise<string>;
+    getTracker(nodeId: Uint8Array): Promise<any>;
     connectToNeighbor(nodeId: string): Promise<void>;
     joinHosts(count: number): Promise<void>;
     getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;

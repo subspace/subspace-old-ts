@@ -680,12 +680,11 @@ class Subspace extends events_1.default {
         }
     }
     // core network methods
-    async requestGateways() {
+    async requestGateways(nodeId) {
         return new Promise(async (resolve, reject) => {
-            // request the latest array of gateway nodes from the first gateway node, merge with your array
-            const gateway = this.network.getClosestGateways(1)[0];
+            // request the latest array of gateway nodes another node
             const message = await this.network.createGenericMessage('gateway-request');
-            await this.send(gateway.nodeId, message);
+            await this.send(nodeId, message);
             this.once('gateway-reply', (message) => {
                 const newGateways = new Set(message);
                 const oldGateways = new Set(this.network.gatewayNodes);
@@ -696,6 +695,7 @@ class Subspace extends events_1.default {
         });
     }
     async createJoinMessage(type) {
+        // create a signed join message as part of connection handshake
         const profile = this.wallet.getProfile();
         let message = {
             version: 0,
@@ -713,54 +713,31 @@ class Subspace extends events_1.default {
         message.signature = await crypto.sign(message, profile.privateKeyObject);
         return message;
     }
-    async join(myTcpPort = 8124, myAddress, myWsPort) {
+    connectToGateways() {
         return new Promise(async (resolve, reject) => {
-            // join the subspace network as a node, connecting to some known gateway nodes
-            // currently connects to a signle know gateway and then fetches existing nodes from it
-            if (this.env === 'gateway' || this.env === 'private-host') {
-                await this.network.startTcpServer(myTcpPort, myAddress);
-                this.network.myAddress = myAddress;
-                this.network.myTcpPort = myTcpPort;
-            }
-            if (myWsPort) {
-                await this.network.startWsServer('0.0.0.0', myWsPort);
-                this.network.myWsPort = myWsPort;
-            }
-            if (this.bootstrap && this.env !== 'gateway') {
-                const error = 'Only a gateway node may bootstrap the network';
-                reject(error);
-            }
-            if (this.bootstrap) {
-                return resolve();
-            }
-            // connect to a single gateway node
-            const gateways = this.network.getClosestGateways(this.gatewayCount);
+            // connect to the closest M gateway nodes from N known nodes
             let count = this.gatewayCount;
+            const gateways = this.network.getClosestGateways(count);
             for (const gateway of gateways) {
-                const requestMessage = await this.createJoinMessage('join-request');
-                this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, requestMessage)
+                const joinMessage = await this.createJoinMessage('join-request');
+                this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
                     .then(async (connection) => {
-                    if (!connection) {
+                    if (connection) {
                         --count;
-                        if (!count) {
-                            reject(new Error('Error connecting to last gateway, request timed out'));
-                        }
-                        return;
                     }
-                    const tracker = await this.getTracker(connection.nodeId);
-                    this.tracker.loadLht(tracker);
-                    this.network.computeNetworkGraph();
-                    // send a ready event
-                    // disconnect from some number of gateways?
-                    this.emit('connected');
-                    resolve();
+                    else {
+                        reject(new Error('Error connecting to gateway node'));
+                    }
+                    if (!count) {
+                        resolve(connection);
+                    }
                 });
             }
-            // fetch the new list of gateways 
-            // get all active gateways
-            await this.requestGateways();
-            // connect to each not already connected to, up to gateway count (full mesh)
-            const allGateways = this.network.getGateways();
+        });
+    }
+    connectToAllGateways() {
+        return new Promise(async (resolve, reject) => {
+            // connect to all known gateway nodes (for small network testing with full mesh)
             const peers = this.network.getPeers();
             for (const gateway of this.network.gatewayNodes) {
                 if (!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
@@ -768,12 +745,41 @@ class Subspace extends events_1.default {
                     await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
                     const connectedGatewayCount = this.network.getGateways().length;
                     if (connectedGatewayCount === this.gatewayCount) {
-                        this.emit('join');
-                        resolve();
+                        return resolve();
                     }
                 }
             }
+        });
+    }
+    async join(myTcpPort = 8124, myAddress, myWsPort) {
+        return new Promise(async (resolve, reject) => {
+            // join the subspace network as a node, connecting to some known gateway nodes
+            // listen for new incoming connections
+            if (this.env === 'gateway' || this.env === 'private-host') {
+                await this.network.startTcpServer(myTcpPort, myAddress);
+                this.network.myAddress = myAddress;
+                this.network.myTcpPort = myTcpPort;
+                if (myWsPort) {
+                    await this.network.startWsServer('0.0.0.0', myWsPort);
+                    this.network.myWsPort = myWsPort;
+                }
+            }
+            // reject if trying to bootstrap and not a gateway
+            if (this.bootstrap && this.env !== 'gateway') {
+                return reject('Only a gateway node may bootstrap the network');
+            }
+            // resolve if trying to bootstrap as genesis gateway
+            if (this.bootstrap) {
+                return resolve();
+            }
+            // if joining the network as a subsequent gateway
+            const gatewayConnection = await this.connectToGateways();
+            const tracker = await this.getTracker(gatewayConnection.nodeId);
+            this.tracker.loadLht(tracker);
+            this.network.computeNetworkGraph();
+            await this.requestGateways(gatewayConnection.nodeId);
             resolve();
+            this.emit('joined');
         });
     }
     leave() {
@@ -782,12 +788,12 @@ class Subspace extends events_1.default {
             // should you send a leave message for graceful shutdown?
             this.disconnect(connection.nodeId);
         });
-        this.emit('leave');
+        this.emit('left');
     }
     async connect(nodeId) {
-        // connect to another node directly as a peer
-        const nodeIdString = Buffer.from(nodeId).toString('hex');
         return new Promise(async (resolve, reject) => {
+            // connect to another node directly as a peer
+            const nodeIdString = Buffer.from(nodeId).toString('hex');
             try {
                 let connection;
                 if (this.network.isPeer(nodeIdString)) {
@@ -864,7 +870,7 @@ class Subspace extends events_1.default {
             }
         }
     }
-    // ledger tx methods
+    // ledger methods
     async seedPlot(size = DEFAULT_HOST_PLEDGE) {
         // seed a plot on disk by generating a proof of space
         const profile = this.wallet.getProfile();
@@ -1602,6 +1608,17 @@ class Subspace extends events_1.default {
         this.ledger.isFarming = false;
     }
     // host methods
+    getTrackerHash(nodeId) {
+        return new Promise(async (resolve) => {
+            const message = await this.network.createGenericMessage('get-tracker-hash');
+            await this.send(nodeId, message);
+            this.once('got-tracker-hash', (hash, from_id) => {
+                if (nodeId === from_id) {
+                    resolve(hash);
+                }
+            });
+        });
+    }
     getTracker(nodeId) {
         return new Promise(async (resolve, reject) => {
             const message = await this.network.createGenericMessage('tracker-request');
@@ -1614,17 +1631,6 @@ class Subspace extends events_1.default {
                 this.network.trackerResponseCallbacks.delete(nodeId);
                 reject();
             }, network_1.CONNECTION_TIMEOUT * 1000);
-        });
-    }
-    getTrackerHash(nodeId) {
-        return new Promise(async (resolve) => {
-            const message = await this.network.createGenericMessage('get-tracker-hash');
-            await this.send(nodeId, message);
-            this.once('got-tracker-hash', (hash, from_id) => {
-                if (nodeId === from_id) {
-                    resolve(hash);
-                }
-            });
         });
     }
     async connectToNeighbor(nodeId) {
