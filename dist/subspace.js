@@ -774,7 +774,7 @@ class Subspace extends events_1.default {
             }
             // if joining the network as a subsequent gateway
             const gatewayConnection = await this.connectToGateways();
-            const tracker = await this.getTracker(gatewayConnection.nodeId);
+            const tracker = await this.requestTracker(gatewayConnection.nodeId);
             this.tracker.loadLht(tracker);
             this.network.computeNetworkGraph();
             await this.requestGateways(gatewayConnection.nodeId);
@@ -1357,26 +1357,26 @@ class Subspace extends events_1.default {
             await this.ledger.bootstrap();
         }
         else {
-            await this.getLedger(blockTime);
+            await this.requestLedger(blockTime);
             this.ledger.isFarming = true;
         }
     }
-    async getLedger(blockTime) {
+    async requestLedger(blockTime) {
         // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
         let myLastBlockId = this.ledger.getLastBlockId();
-        let gatewayLastBlockId = await this.getLastBlockId();
+        let gatewayLastBlockId = await this.requestLastBlockId();
         let previousBlockRecord = null;
         while (myLastBlockId !== gatewayLastBlockId) {
             console.log('Getting ledger segment');
-            previousBlockRecord = await this.getLedgerSegment(myLastBlockId);
+            previousBlockRecord = await this.requestLedgerSegment(myLastBlockId);
             myLastBlockId = this.ledger.getLastBlockId();
-            gatewayLastBlockId = await this.getLastBlockId();
+            gatewayLastBlockId = await this.requestLastBlockId();
         }
         console.log('Got full ledger');
         this.ledger.hasLedger = true;
         await this.onLedger(blockTime, previousBlockRecord);
     }
-    getLastBlockId() {
+    requestLastBlockId() {
         return new Promise(async (resolve, reject) => {
             // rpc method to retrieve the last block id (head) of the ledger from a gateway node
             const request = await this.network.createGenericMessage('last-block-id-request');
@@ -1387,15 +1387,15 @@ class Subspace extends events_1.default {
             });
         });
     }
-    async getLedgerSegment(myLastBlockId) {
+    async requestLedgerSegment(myLastBlockId) {
         // fetch a segment of the ledger based on the current state of the chain from a gateway
-        const chain = await this.getChain();
+        const chain = await this.requestChain();
         let previousBlockRecord = null;
         if (!myLastBlockId) {
             // get the chain from genesis block
             console.log('getting chain from genesis block');
             for (const blockId of chain) {
-                previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord);
+                previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord);
             }
         }
         else {
@@ -1411,14 +1411,14 @@ class Subspace extends events_1.default {
             for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
                 blockId = chain[i];
                 if (blockId) {
-                    previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord);
+                    previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord);
                 }
             }
         }
         myLastBlockId = previousBlockRecord.key;
         return previousBlockRecord;
     }
-    getChain() {
+    requestChain() {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch the chain (array of blockHeaderIds) from a gateway node
             const request = await this.network.createGenericMessage('chain-request');
@@ -1429,9 +1429,9 @@ class Subspace extends events_1.default {
             });
         });
     }
-    async getLastBlock(blockId, previousBlockRecord) {
+    async requestLastBlock(blockId, previousBlockRecord) {
         // fetches and validates each block header and tx for a given block, applying the block if all are valid
-        const blockRecord = await this.getBlockHeader(blockId);
+        const blockRecord = await this.requestBlockHeader(blockId);
         const blockRecordTest = await blockRecord.isValid();
         if (!blockRecordTest.valid) {
             throw new Error(blockRecordTest.reason);
@@ -1453,7 +1453,7 @@ class Subspace extends events_1.default {
             }
         }
         for (const txId of block.value.txSet) {
-            const txRecord = await this.getTx(txId);
+            const txRecord = await this.requestTx(txId);
             // validate the tx record
             const txRecordTest = await txRecord.isValid();
             if (!txRecordTest.valid) {
@@ -1470,7 +1470,7 @@ class Subspace extends events_1.default {
         await this.ledger.applyBlock(blockRecord);
         return blockRecord;
     }
-    getBlockHeader(blockId) {
+    requestBlockHeader(blockId) {
         return new Promise(async (resolve, reject) => {
             // RPC method to get a cleared block header from a gateway node
             const request = await this.network.createGenericMessage('block-header-request', blockId);
@@ -1489,7 +1489,7 @@ class Subspace extends events_1.default {
             });
         });
     }
-    getTx(txId) {
+    requestTx(txId) {
         return new Promise(async (resolve, reject) => {
             // rpc method to get a cleared tx from a gateway node
             const request = await this.network.createGenericMessage('tx-request', txId);
@@ -1538,7 +1538,7 @@ class Subspace extends events_1.default {
                 await this.ledger.applyBlock(blockRecord);
             }
         }, timeRemaining);
-        await this.getPendingBlock();
+        await this.requestPendingBlock();
         // create the contract tx for the last block 
     }
     async getGenesisTime() {
@@ -1548,14 +1548,14 @@ class Subspace extends events_1.default {
         const genesisRecord = database_1.Record.readUnpacked(genesisBlockId, genesisBlock);
         return genesisRecord.value.createdAt;
     }
-    async getPendingBlock() {
-        const pendingBlockHeader = await this.getPendingBlockHeader();
+    async requestPendingBlock() {
+        const pendingBlockHeader = await this.requestPendingBlockHeader();
         if (pendingBlockHeader) {
             if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
                 // fetch each tx from gateway mem pool 
                 console.log(pendingBlockHeader.value.content.txSet);
                 for (const txId of pendingBlockHeader.value.content.txSet) {
-                    const pendingTxRecord = await this.getPendingTx(txId);
+                    const pendingTxRecord = await this.requestPendingTx(txId);
                     const txRecordTest = await pendingTxRecord.isValid();
                     // validate the tx record
                     if (!txRecordTest.valid) {
@@ -1575,7 +1575,7 @@ class Subspace extends events_1.default {
             }
         }
     }
-    async getPendingBlockHeader() {
+    async requestPendingBlockHeader() {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch the most valid pending block from a gateway node
             const request = await this.network.createGenericMessage('pending-block-header-request');
@@ -1591,7 +1591,7 @@ class Subspace extends events_1.default {
             });
         });
     }
-    async getPendingTx(txId) {
+    async requestPendingTx(txId) {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch a pending tx from a gateway node
             const request = await this.network.createGenericMessage('pending-tx-request', txId);
@@ -1608,7 +1608,7 @@ class Subspace extends events_1.default {
         this.ledger.isFarming = false;
     }
     // host methods
-    getTrackerHash(nodeId) {
+    requestTrackerHash(nodeId) {
         return new Promise(async (resolve) => {
             const message = await this.network.createGenericMessage('get-tracker-hash');
             await this.send(nodeId, message);
@@ -1619,7 +1619,7 @@ class Subspace extends events_1.default {
             });
         });
     }
-    getTracker(nodeId) {
+    requestTracker(nodeId) {
         return new Promise(async (resolve, reject) => {
             const message = await this.network.createGenericMessage('tracker-request');
             await this.send(nodeId, message);
@@ -1726,7 +1726,7 @@ class Subspace extends events_1.default {
                 const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts;
                 if (hosts.includes(profile.id)) {
                     const furthestHost = hosts[hosts.length - 1];
-                    promises.push(this.getShard(furthestHost, shardId, recordId));
+                    promises.push(this.requestShard(furthestHost, shardId, recordId));
                 }
             }
         }
@@ -1739,7 +1739,7 @@ class Subspace extends events_1.default {
         this.isHosting = true;
         this.emit('joined-hosts');
     }
-    async getShard(nodeId, shardId, contractRecordId) {
+    async requestShard(nodeId, shardId, contractRecordId) {
         return new Promise(async (resolve, reject) => {
             // get shard from another host after joining the host network
             // corner case, what if two hosts try to take over the same shard at the same time?
@@ -1777,7 +1777,7 @@ class Subspace extends events_1.default {
                     // and I am last host
                     if (hosts[hosts.length - 1] === profile.id) {
                         // get the shard from the first host
-                        this.getShard(hosts[0], shardId, recordId);
+                        this.requestShard(hosts[0], shardId, recordId);
                     }
                 }
             }

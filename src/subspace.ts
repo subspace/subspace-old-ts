@@ -910,7 +910,7 @@ export default class Subspace extends EventEmitter {
 
       // if joining the network as a subsequent gateway
       const gatewayConnection = await this.connectToGateways()
-      const tracker = await this.getTracker(gatewayConnection.nodeId)
+      const tracker = await this.requestTracker(gatewayConnection.nodeId)
       this.tracker.loadLht(tracker)
       this.network.computeNetworkGraph()
       await this.requestGateways(gatewayConnection.nodeId)
@@ -984,7 +984,7 @@ export default class Subspace extends EventEmitter {
 
   public disconnect(nodeId: Uint8Array): void {
     // disconnect from another node as a peer
-    
+
     const connection = this.network.connections.get(nodeId)
     if (connection) {
       connection.destroy()
@@ -1618,23 +1618,23 @@ export default class Subspace extends EventEmitter {
       this.ledger.isFarming = true
       await this.ledger.bootstrap()
     } else {
-      await this.getLedger(blockTime)
+      await this.requestLedger(blockTime)
       this.ledger.isFarming = true
     }
   }
 
-  private async getLedger(blockTime: number) {
+  private async requestLedger(blockTime: number) {
     // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
 
     let myLastBlockId = this.ledger.getLastBlockId()
-    let gatewayLastBlockId = await this.getLastBlockId()
+    let gatewayLastBlockId = await this.requestLastBlockId()
 
     let previousBlockRecord: Record = null
     while (myLastBlockId !== gatewayLastBlockId) {
       console.log('Getting ledger segment')
-      previousBlockRecord = await this.getLedgerSegment(myLastBlockId)
+      previousBlockRecord = await this.requestLedgerSegment(myLastBlockId)
       myLastBlockId = this.ledger.getLastBlockId()
-      gatewayLastBlockId = await this.getLastBlockId()
+      gatewayLastBlockId = await this.requestLastBlockId()
     }
 
     console.log('Got full ledger')
@@ -1642,7 +1642,7 @@ export default class Subspace extends EventEmitter {
     await this.onLedger(blockTime, previousBlockRecord)
   }
 
-  private getLastBlockId(): Promise<string> {
+  private requestLastBlockId(): Promise<string> {
     return new Promise<string> ( async (resolve, reject) => {
       // rpc method to retrieve the last block id (head) of the ledger from a gateway node
 
@@ -1656,16 +1656,16 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getLedgerSegment(myLastBlockId: string) {
+  private async requestLedgerSegment(myLastBlockId: string) {
     // fetch a segment of the ledger based on the current state of the chain from a gateway
 
-    const chain = await this.getChain()
+    const chain = await this.requestChain()
     let previousBlockRecord: Record = null
     if (!myLastBlockId) {
       // get the chain from genesis block
       console.log('getting chain from genesis block')
       for (const blockId of chain) {
-        previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+        previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord)
       }
     }  else {
       // get the chain from my last block
@@ -1680,7 +1680,7 @@ export default class Subspace extends EventEmitter {
       for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
         blockId = chain[i]
         if (blockId) {
-          previousBlockRecord = await this.getLastBlock(blockId, previousBlockRecord)
+          previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord)
         }
       }
     }
@@ -1688,7 +1688,7 @@ export default class Subspace extends EventEmitter {
     return previousBlockRecord
   }
 
-  private getChain(): Promise<string[]> {
+  private requestChain(): Promise<string[]> {
     return new Promise<string[]>( async (resolve, reject) => {
       // rpc method to fetch the chain (array of blockHeaderIds) from a gateway node
 
@@ -1702,10 +1702,10 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getLastBlock(blockId: string, previousBlockRecord: Record) {
+  private async requestLastBlock(blockId: string, previousBlockRecord: Record) {
     // fetches and validates each block header and tx for a given block, applying the block if all are valid
 
-    const blockRecord = await this.getBlockHeader(blockId)
+    const blockRecord = await this.requestBlockHeader(blockId)
     const blockRecordTest = await blockRecord.isValid()
     if (!blockRecordTest.valid) {
       throw new Error(blockRecordTest.reason)
@@ -1728,7 +1728,7 @@ export default class Subspace extends EventEmitter {
     }
 
     for (const txId of block.value.txSet) {
-      const txRecord = await this.getTx(txId)
+      const txRecord = await this.requestTx(txId)
       // validate the tx record
       const txRecordTest = await txRecord.isValid()
       if (!txRecordTest.valid) {
@@ -1748,7 +1748,7 @@ export default class Subspace extends EventEmitter {
     return blockRecord
   }
 
-  private getBlockHeader(blockId: string): Promise<Record> {
+  private requestBlockHeader(blockId: string): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // RPC method to get a cleared block header from a gateway node
 
@@ -1769,7 +1769,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private getTx(txId: string): Promise<Record> {
+  private requestTx(txId: string): Promise<Record> {
     return new Promise<Record>( async (resolve, reject) => {
       // rpc method to get a cleared tx from a gateway node
 
@@ -1829,7 +1829,7 @@ export default class Subspace extends EventEmitter {
       }
     }, timeRemaining)
 
-    await this.getPendingBlock()
+    await this.requestPendingBlock()
 
     // create the contract tx for the last block 
   }
@@ -1842,14 +1842,14 @@ export default class Subspace extends EventEmitter {
     return genesisRecord.value.createdAt
   }
 
-  private async getPendingBlock() {
-    const pendingBlockHeader = await this.getPendingBlockHeader()
+  private async requestPendingBlock() {
+    const pendingBlockHeader = await this.requestPendingBlockHeader()
     if (pendingBlockHeader) {
       if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
         // fetch each tx from gateway mem pool 
         console.log(pendingBlockHeader.value.content.txSet)
         for (const txId of pendingBlockHeader.value.content.txSet) {
-          const pendingTxRecord = await this.getPendingTx(txId)
+          const pendingTxRecord = await this.requestPendingTx(txId)
           const txRecordTest = await pendingTxRecord.isValid()
 
           // validate the tx record
@@ -1873,7 +1873,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  private async getPendingBlockHeader(): Promise<Record> {
+  private async requestPendingBlockHeader(): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // rpc method to fetch the most valid pending block from a gateway node
       const request = await this.network.createGenericMessage('pending-block-header-request')
@@ -1891,7 +1891,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async getPendingTx(txId: string): Promise<Record> {
+  private async requestPendingTx(txId: string): Promise<Record> {
     return new Promise<Record> ( async (resolve, reject) => {
       // rpc method to fetch a pending tx from a gateway node
 
@@ -1913,7 +1913,7 @@ export default class Subspace extends EventEmitter {
 
   // host methods
 
-  public getTrackerHash(nodeId: Uint8Array): Promise<string> {
+  public requestTrackerHash(nodeId: Uint8Array): Promise<string> {
     return new Promise(async (resolve) => {
 
       const message = await this.network.createGenericMessage('get-tracker-hash')
@@ -1927,7 +1927,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public getTracker(nodeId: Uint8Array): Promise<any> {
+  public requestTracker(nodeId: Uint8Array): Promise<any> {
     return new Promise<any> ( async (resolve, reject) => {
       const message = await this.network.createGenericMessage('tracker-request')
       await this.send(nodeId, message)
@@ -2062,7 +2062,7 @@ export default class Subspace extends EventEmitter {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts
         if (hosts.includes(profile.id)) {
           const furthestHost = hosts[hosts.length - 1]
-          promises.push(this.getShard(furthestHost, shardId, recordId))
+          promises.push(this.requestShard(furthestHost, shardId, recordId))
         }
       }
     }
@@ -2079,7 +2079,7 @@ export default class Subspace extends EventEmitter {
 
   }
 
-  public async getShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void> {
+  public async requestShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
       // get shard from another host after joining the host network
       // corner case, what if two hosts try to take over the same shard at the same time?
@@ -2124,7 +2124,7 @@ export default class Subspace extends EventEmitter {
           // and I am last host
           if (hosts[hosts.length -1] === profile.id) {
             // get the shard from the first host
-            this.getShard(hosts[0], shardId, recordId)
+            this.requestShard(hosts[0], shardId, recordId)
           }
         }
       }
