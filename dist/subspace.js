@@ -214,7 +214,6 @@ class Subspace extends events_1.default {
             // on valid pledge tx, add new inactive host entry into the tracker
             if (txRecord.value.content.type === 'pledge') {
                 this.tracker.addEntry(txRecord);
-                console.log('Applied pledge to tracker');
                 // console.log(this.tracker.lht)
             }
             if (txRecord.value.content.type === 'contract') {
@@ -249,7 +248,7 @@ class Subspace extends events_1.default {
                                 // compute their neighbors
                                 const profile = this.wallet.getProfile();
                                 const hosts = this.tracker.getActiveHosts();
-                                const neighbors = new Set([...this.tracker.getNeighbors(nodeId, hosts)]);
+                                const neighbors = new Set([...this.tracker.getMyNeighbors(nodeId, hosts)]);
                                 neighbors.delete(profile.id);
                                 // track the failures 
                                 const pendingFailure = {
@@ -291,24 +290,27 @@ class Subspace extends events_1.default {
             });
         });
         this.network.on('message', async (message, id, callback) => {
-            console.log('Received a', message.type, 'message from', message.sender.substring(0, 8));
+            if (message.sender) {
+                console.log('Received a', message.type, 'message from', message.sender.substring(0, 8));
+            }
+            else {
+                console.log('Received a', message.type, 'message');
+            }
             let valid = false;
             // handle validation for gossiped messages here
             // specific rpc methods are emitted and handled in corresponding parent method
             // prevent revalidating and regoissiping the same messages
-            if (['block', 'solution'].includes(message.type)) {
+            if (['block', 'solution', 'tx'].includes(message.type)) {
                 const messagedId = crypto.getHash(JSON.stringify(message.data));
                 if (this.messages.has(messagedId)) {
                     return;
                 }
                 this.messages.set(messagedId, Date.now());
             }
-            let response, peer, connection = null;
             switch (message.type) {
                 // don't validate tx and blocks until you have the full ledger
                 // and are ready to start farming
                 case 'join-request': {
-                    console.log('join request');
                     const connection = this.network.getConnectionFromId(id);
                     if (!await this.network.isValidMessage(message)) {
                         connection.destroy();
@@ -319,7 +321,6 @@ class Subspace extends events_1.default {
                     break;
                 }
                 case 'join-response': {
-                    console.log('join response');
                     const callback = this.network.joinResponseCallbacks.get(id);
                     if (callback) {
                         this.network.joinResponseCallbacks.delete(id);
@@ -342,15 +343,15 @@ class Subspace extends events_1.default {
                     break;
                 }
                 case ('peer-added'): {
-                    peer = message.data;
-                    connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
-                    connection.peers.push(Buffer.from(peer, 'hex'));
+                    const peer = message.data;
+                    const connection = this.network.getConnectionFromId(id);
+                    connection.peers.push(peer);
                     break;
                 }
                 case ('peer-removed'): {
-                    peer = message.data;
-                    connection = this.network.getConnectionFromId(Buffer.from(message.sender, 'hex'));
-                    const index = connection.peers.indexOf(Buffer.from(peer, 'hex'));
+                    const peer = message.data;
+                    const connection = this.network.getConnectionFromId(id);
+                    const index = connection.peers.indexOf(peer);
                     connection.peers.splice(index, 1);
                     break;
                 }
@@ -388,18 +389,18 @@ class Subspace extends events_1.default {
                     break;
                 }
                 case ('gateway-request'): {
-                    response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes);
+                    const response = await this.network.createGenericMessage('gateway-reply', this.network.gatewayNodes);
                     await this.send(message.sender, response);
                     break;
                 }
                 case ('chain-request'): {
-                    const payload = Buffer.from(JSON.stringify(this.ledger.chain));
-                    await this.send(message.sender, payload);
+                    const response = await this.network.createGenericMessage('chain-reply', this.ledger.chain);
+                    await this.send(message.sender, response);
                     break;
                 }
                 case ('last-block-id-request'): {
                     const lastBlockId = this.ledger.getLastBlockId();
-                    response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId);
+                    const response = await this.network.createGenericMessage('last-block-id-reply', lastBlockId);
                     await this.send(message.sender, response);
                     break;
                 }
@@ -408,7 +409,7 @@ class Subspace extends events_1.default {
                     const blockValue = JSON.parse(await this.storage.get(blockKey));
                     blockValue.content = JSON.stringify(blockValue.content);
                     const block = database_1.Record.readPacked(blockKey, blockValue);
-                    response = await this.network.createGenericMessage('block-header-reply', block.getRecord());
+                    const response = await this.network.createGenericMessage('block-header-reply', block.getRecord());
                     await this.send(message.sender, response);
                     break;
                 }
@@ -416,12 +417,13 @@ class Subspace extends events_1.default {
                     const txKey = message.data;
                     const txValue = JSON.parse(await this.storage.get(txKey));
                     const tx = database_1.Record.readPacked(txKey, txValue);
-                    response = await this.network.createGenericMessage('tx-reply', tx.getRecord());
+                    const response = await this.network.createGenericMessage('tx-reply', tx.getRecord());
                     await this.send(message.sender, response);
                     break;
                 }
                 case ('pending-block-header-request'): {
                     const pendingBlockId = this.ledger.validBlocks[0];
+                    let response = null;
                     if (pendingBlockId) {
                         const pendingBlockValue = JSON.parse(JSON.stringify(this.ledger.pendingBlocks.get(pendingBlockId)));
                         const pendingBlock = database_1.Record.readUnpacked(pendingBlockId, pendingBlockValue);
@@ -436,7 +438,6 @@ class Subspace extends events_1.default {
                 }
                 case ('pending-tx-request'): {
                     const pendingTxId = message.data;
-                    console.log(pendingTxId);
                     const pendingTxValue = JSON.parse(JSON.stringify(this.ledger.validTxs.get(pendingTxId)));
                     if (!pendingTxValue) {
                         console.log(pendingTxId, this.ledger.validTxs);
@@ -444,7 +445,7 @@ class Subspace extends events_1.default {
                     }
                     const pendingTxRecord = database_1.Record.readUnpacked(pendingTxId, pendingTxValue);
                     await pendingTxRecord.pack(null);
-                    response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord());
+                    const response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord());
                     await this.send(message.sender, response);
                     break;
                 }
@@ -456,7 +457,7 @@ class Subspace extends events_1.default {
                     const entry = this.tracker.getEntry(join.nodeId);
                     if (entry && !entry.status) {
                         const activeHosts = this.tracker.getActiveHosts();
-                        const neighbors = new Set([...this.tracker.getNeighbors(join.nodeId, activeHosts)]);
+                        const neighbors = new Set([...this.tracker.getMyNeighbors(join.nodeId, activeHosts)]);
                         let validCount = 0;
                         // for each valid neighbor, validate the signature 
                         for (const proof of join.signatures) {
@@ -475,7 +476,7 @@ class Subspace extends events_1.default {
                         if (validCount >= (neighbors.size * (2 / 3))) {
                             console.log('Valid host join, updating entry');
                             this.tracker.updateEntry(join);
-                            await this.network.gossip(message, Buffer.from(message.sender));
+                            await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                             // drop any shards this host replicated from me
                             if (this.evictedShards.has(join.nodeId)) {
                                 const shards = this.evictedShards.get(join.nodeId);
@@ -509,7 +510,7 @@ class Subspace extends events_1.default {
                     }
                     // am I a valid neighbor for this host?
                     const activeHosts = this.tracker.getActiveHosts();
-                    const hostNeighbors = this.tracker.getNeighbors(message.sender, activeHosts);
+                    const hostNeighbors = this.tracker.getMyNeighbors(message.sender, activeHosts);
                     if (!hostNeighbors.includes(profile.id)) {
                         neighborResponse.reason = 'invalid neighbor request, not a valid neighbor';
                         console.log(neighborResponse.reason);
@@ -585,7 +586,7 @@ class Subspace extends events_1.default {
                     evictedShard.add(request.shardId);
                     this.evictedShards.set(message.sender, evictedShard);
                     // need to create an unsigned message, should really be sent as a stream
-                    const shardResponseMessage = await this.network.createGenericMessage('shard-reply', response);
+                    const shardResponseMessage = await this.network.createGenericMessage('shard-reply', shardResponse);
                     this.send(message.sender, shardResponseMessage);
                     break;
                 }
@@ -599,7 +600,7 @@ class Subspace extends events_1.default {
                         const entry = this.tracker.getEntry(message.sender);
                         if (entry && entry.status) {
                             // valid leave, gossip back out
-                            await this.network.gossip(message, Buffer.from(message.sender));
+                            await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                             // see if I need to replicate any shards for this host
                             this.replicateShards(message.sender);
                             // deactivate the node in the tracker after computing shards
@@ -630,7 +631,7 @@ class Subspace extends events_1.default {
                     const hostEntry = this.tracker.getEntry(failure.nodeId);
                     if (hostEntry && hostEntry.status) {
                         const hosts = this.tracker.getActiveHosts();
-                        const neighbors = new Set([...this.tracker.getNeighbors(failure.nodeId, hosts)]);
+                        const neighbors = new Set([...this.tracker.getMyNeighbors(failure.nodeId, hosts)]);
                         let validSigs = 0;
                         for (const signature of failure.signatures) {
                             if (neighbors.has(crypto.getHash(signature.publicKey))) {
@@ -648,7 +649,7 @@ class Subspace extends events_1.default {
                             // deactivate the node in the tracker
                             this.tracker.updateEntry(failure);
                             // continue to spread the failure message
-                            this.network.gossip(message, Buffer.from(message.sender));
+                            this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                             // remove the node from pending failure if I am a neighbor
                             if (this.pendingFailures.has(failure.nodeId)) {
                                 this.pendingFailures.delete(failure.nodeId);
@@ -658,7 +659,7 @@ class Subspace extends events_1.default {
                     break;
                 }
                 default: {
-                    this.emit(message.type, message.data);
+                    this.emit(message.type, message.data, Buffer.from(id).toString('hex'));
                 }
             }
         });
@@ -786,17 +787,20 @@ class Subspace extends events_1.default {
     }
     async connect(nodeId) {
         // connect to another node directly as a peer
+        // see if a connection already exists
         const nodeIdString = Buffer.from(nodeId).toString('hex');
         let connection;
         if (this.network.isPeer(nodeIdString)) {
             connection = this.network.getConnectionFromId(nodeId);
         }
-        if (this.network.isGatewayNode(nodeIdString)) {
+        // if known gateway then connect over public ip 
+        else if (this.network.isGatewayNode(nodeIdString)) {
             const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0];
             const joinMessage = await this.createJoinMessage('join-request');
             connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
         }
-        if (this.tracker.hasEntry(nodeIdString)) {
+        // else check if in the tracker
+        else if (this.tracker.hasEntry(nodeIdString)) {
             const host = this.tracker.getEntry(nodeIdString);
             if (host.status && host.isGateway) {
                 const joinMessage = await this.createJoinMessage('join-request');
@@ -804,7 +808,7 @@ class Subspace extends events_1.default {
             }
             else if (host.status) {
                 // TODO: `validHosts` shouldn't be `[]`, fix this
-                const neighbors = this.tracker.getNeighbors(nodeIdString, []);
+                const neighbors = this.tracker.getMyNeighbors(nodeIdString, []);
                 const public_neighbors = neighbors
                     .filter((node) => node.isGateway)
                     .map((node) => node.public_ip);
@@ -1353,7 +1357,6 @@ class Subspace extends events_1.default {
         let gatewayLastBlockId = await this.requestLastBlockId();
         let previousBlockRecord = null;
         while (myLastBlockId !== gatewayLastBlockId) {
-            console.log('Getting ledger segment');
             previousBlockRecord = await this.requestLedgerSegment(myLastBlockId);
             myLastBlockId = this.ledger.getLastBlockId();
             gatewayLastBlockId = await this.requestLastBlockId();
@@ -1366,7 +1369,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // rpc method to retrieve the last block id (head) of the ledger from a gateway node
             const request = await this.network.createGenericMessage('last-block-id-request');
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             await this.send(gateway, request);
             this.once('last-block-id-reply', async (blockId) => {
                 resolve(blockId);
@@ -1408,7 +1411,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch the chain (array of blockHeaderIds) from a gateway node
             const request = await this.network.createGenericMessage('chain-request');
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             await this.send(gateway, request);
             this.once('chain-reply', async (chain) => {
                 resolve(chain);
@@ -1460,7 +1463,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // RPC method to get a cleared block header from a gateway node
             const request = await this.network.createGenericMessage('block-header-request', blockId);
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             this.send(gateway, request);
             this.once('block-header-reply', async (block) => {
                 if (block) {
@@ -1479,7 +1482,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // rpc method to get a cleared tx from a gateway node
             const request = await this.network.createGenericMessage('tx-request', txId);
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             this.send(gateway, request);
             this.once('tx-reply', async (tx) => {
                 if (tx) {
@@ -1539,7 +1542,6 @@ class Subspace extends events_1.default {
         if (pendingBlockHeader) {
             if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
                 // fetch each tx from gateway mem pool 
-                console.log(pendingBlockHeader.value.content.txSet);
                 for (const txId of pendingBlockHeader.value.content.txSet) {
                     const pendingTxRecord = await this.requestPendingTx(txId);
                     const txRecordTest = await pendingTxRecord.isValid();
@@ -1565,7 +1567,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch the most valid pending block from a gateway node
             const request = await this.network.createGenericMessage('pending-block-header-request');
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             this.send(gateway, request);
             this.once('pending-block-header-reply', async (pendingBlock) => {
                 if (pendingBlock) {
@@ -1581,7 +1583,7 @@ class Subspace extends events_1.default {
         return new Promise(async (resolve, reject) => {
             // rpc method to fetch a pending tx from a gateway node
             const request = await this.network.createGenericMessage('pending-tx-request', txId);
-            const gateway = this.network.getGateways()[0];
+            const gateway = this.network.getConnectedGateways()[0];
             this.send(gateway, request);
             this.once('pending-tx-reply', async (pendingTx) => {
                 const pendingTxRecord = database_1.Record.readPacked(pendingTx.key, pendingTx.value);
@@ -1622,75 +1624,33 @@ class Subspace extends events_1.default {
     async connectToNeighbor(nodeId) {
         return new Promise(async (resolve, reject) => {
             // send a connection request to a valid neighbor
+            // check if a connection exists
+            const gateway = this.network.getGateway(nodeId);
+            const connectedGateways = this.network.getConnectedGateways();
+            if (gateway && !connectedGateways.includes(gateway.nodeId)) {
+                const joinMessage = await this.createJoinMessage('join-request');
+                await this.network.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+            }
             const pledgeTxId = this.wallet.profile.pledge.pledgeTx;
             const request = { pledgeTxId };
             const requestMessage = await this.network.createGenericMessage('neighbor-request', request);
             await this.send(nodeId, requestMessage);
-            this.on('neighbor-request', async (message) => {
-                const response = {
-                    valid: false,
-                    reason: null,
-                    proof: null
-                };
-                const requestTest = await this.tracker.isValidNeighborRequest(message);
-                // is this a valid neighbor request message?
-                if (!requestTest) {
-                    response.reason = requestTest.reason;
-                    const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
-                    await this.send(message.sender, responseMessage);
-                }
-                // am I a valid neighbor for this host?
-                const profile = this.wallet.getProfile();
-                const activeHosts = this.tracker.getActiveHosts();
-                const hostNeighbors = this.tracker.getNeighbors(message.sender, activeHosts);
-                if (!hostNeighbors.includes(profile.id)) {
-                    response.reason = 'invalid neighbor request, not a valid neighbor';
-                    const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
-                    await this.send(message.sender, responseMessage);
-                }
-                // add to neighbors
-                this.neighbors.add(message.sender);
-                // send join reply with my signature proof
-                response.proof = {
-                    host: message.sender,
-                    neighbor: profile.publicKey,
-                    timestamp: Date.now(),
-                    signature: null
-                };
-                response.valid = true;
-                response.proof.signature = await crypto.sign(response.proof, profile.privateKey);
-                const responseMessage = await this.network.createGenericMessage('neighbor-reply', response);
-                await this.send(message.sender, responseMessage);
-            });
-            this.on('neighbor-reply', (message) => {
+            this.on('neighbor-reply', (response, sender) => {
                 // check if request accpeted
-                const response = message.data;
                 if (!response.valid) {
                     reject(new Error(response.reason));
                 }
                 // update my neighbors
-                this.neighbors.add(message.sender);
-                this.neighborProofs.set(message.sender, JSON.parse(JSON.stringify(response.proof)));
+                this.neighbors.add(sender);
+                this.neighborProofs.set(sender, JSON.parse(JSON.stringify(response.proof)));
                 resolve();
             });
         });
     }
-    async joinHosts(count) {
+    async joinHosts() {
         // after seeding and pledging space, join the host network 
         // should add a delay or ensure the tx has been anchored in the ledger 
         // assumes the host already has an entry into the tracker
-        // first host
-        // bootstraps an empty tracker
-        // seeds plot and pledges to the ledger
-        // adds their own entry 
-        // second host
-        // fetches the tracker
-        // seed plot and pledges space
-        // connects to first host as neighbor 
-        // receives the neighbor proof
-        // gossips join proof as single neighbor proof
-        // third host
-        // fourth host 
         const pledge = this.wallet.profile.pledge;
         if (!pledge) {
             throw new Error('Cannot join host network without first submitting a pledge tx');
@@ -1699,8 +1659,8 @@ class Subspace extends events_1.default {
         const promises = [];
         // connect to all valid neighbors
         const activeHosts = this.tracker.getActiveHosts();
-        this.neighbors = new Set([...this.tracker.getNeighbors(profile.id, activeHosts, count)]);
-        console.log('\n Connecting to', this.neighbors.size, 'closest hosts, out of ', this.tracker.lht.size, 'active hosts.\n', this.neighbors);
+        this.neighbors = new Set([...this.tracker.getMyNeighbors(profile.id, activeHosts)]);
+        console.log('Connecting to', this.neighbors.size, 'closest hosts, out of ', activeHosts.length, 'active hosts.\n', this.neighbors);
         for (const nodeId of this.neighbors) {
             promises.push(this.connectToNeighbor(nodeId));
         }
@@ -1804,7 +1764,7 @@ class Subspace extends events_1.default {
                                 // compute their neighbors
                                 const profile = this.wallet.getProfile();
                                 const hosts = this.tracker.getActiveHosts();
-                                const neighbors = new Set([...this.tracker.getNeighbors(nodeId, hosts)]);
+                                const neighbors = new Set([...this.tracker.getMyNeighbors(nodeId, hosts)]);
                                 neighbors.delete(profile.id);
                                 // track the failures
                                 const pendingFailure = {
@@ -1865,7 +1825,7 @@ class Subspace extends events_1.default {
             const entry = this.tracker.getEntry(failure.nodeId);
             if (entry && entry.status) {
                 const hosts = this.tracker.getActiveHosts();
-                const neighbors = new Set([...this.tracker.getNeighbors(failure.nodeId, hosts)]);
+                const neighbors = new Set([...this.tracker.getMyNeighbors(failure.nodeId, hosts)]);
                 let validSigs = 0;
                 for (const signature of failure.signatures) {
                     if (neighbors.has(crypto.getHash(signature.publicKey))) {

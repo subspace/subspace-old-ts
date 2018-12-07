@@ -8,7 +8,7 @@
     "@subspace/crypto": "github:subspace/crypto",
     "@subspace/database": "github:subspace/database",
     "@subspace/ledger": "github:subspace/ledger",
-    "@subspace/network": "github:subspace/network#remove-rpc-calls",
+    "@subspace/network": "github:subspace/network",
     "@subspace/storage": "github:subspace/storage",
     "@subspace/tracker": "github:subspace/tracker",
     "@subspace/wallet": "github:subspace/wallet"
@@ -21,7 +21,7 @@
     "tape": "^4.9.1",
     "ts-jest": "^23.10.5",
     "ts-node": "^7.0.1",
-    "typescript": "^3.2.1"
+    "typescript": "^3.2.2"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

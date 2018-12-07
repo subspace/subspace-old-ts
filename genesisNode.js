@@ -10,9 +10,9 @@ const init = async () => {
 
     const subspace = new Subspace.default(true, [], 3)
 
-    subspace.on('ready', () => {
-      console.log('ready event has fired in full node')
-    })
+    // subspace.on('ready', () => {
+    //   console.log('ready event has fired in full node')
+    // })
 
     subspace.on('connection', (connection) => {
       console.log('\nConnected to a new node:', connection)
@@ -35,9 +35,10 @@ const init = async () => {
     console.log('seeded plot')
 
     await subspace.join(8125, '127.0.0.1')
+    console.log('Bootstrapped the network')
 
     await subspace.startFarmer(10000)
-    console.log('started farming')
+    console.log('Bootstrapped the ledger and started farming')
 
     // start interval
 
@@ -61,9 +62,8 @@ const init = async () => {
 
     setTimeout( async () => {
       await subspace.joinHosts(0)
-      console.log('joined hosts')
-      console.log('\n Joined ! \n')
-    }, 7000)
+      console.log('Bootstrapped the tracker and joined hosts')
+    }, 6000)
 
     
    
