@@ -50,13 +50,13 @@ const init = async () => {
         await subspace.joinHosts()
         console.log('Joined Hosts!')
 
-        setTimeout( async() => {
-          await subspace.leaveHosts()
-          console.log('Left Hosts')
+        // setTimeout( async() => {
+        //   await subspace.leaveHosts()
+        //   console.log('Left Hosts')
 
-          await subspace.stopFarmer()
-          console.log('stopped farming')
-        }, 60000)
+        //   await subspace.stopFarmer()
+        //   console.log('stopped farming')
+        // }, 60000)
 
       }, 10000)
 
