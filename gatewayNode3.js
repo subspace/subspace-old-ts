@@ -9,10 +9,14 @@ const init = async () => {
       console.log('\nConnected to a new node: ', connection)
     })
 
+    subspace.on('disconnection', (nodeId) => {
+      console.log('Lost connection to node', nodeId)
+    })
+
     subspace.on('join', () => {
       console.log('Joined the Network')
     })
-
+    
     subspace.on('applied-block', block => {
       console.log('Applied block: ', block.key)
       // console.log(subspace.ledger.clearedBalances)
@@ -38,7 +42,16 @@ const init = async () => {
       setTimeout( async () => {
         await subspace.joinHosts()
         console.log('Joined Hosts!')
-      }, 15000)
+
+        setTimeout( async() => {
+          await subspace.leaveHosts()
+          console.log('Left Hosts')
+
+          await subspace.stopFarmer()
+          console.log('stopped farming')
+        }, 30000)
+
+      }, 10000)
 
     }, 7000)
 

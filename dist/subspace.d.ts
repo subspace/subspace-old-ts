@@ -98,5 +98,4 @@ export default class Subspace extends EventEmitter {
     requestShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
     private replicateShards;
     leaveHosts(): Promise<void>;
-    onHostFailure(): Promise<void>;
 }
