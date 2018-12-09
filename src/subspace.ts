@@ -929,11 +929,11 @@ export default class Subspace extends EventEmitter {
       for (const gateway of gateways) {
         const nodeId = Buffer.from(gateway.nodeId, 'hex')
         const joinMessage = await this.createJoinMessage('join-request')
-        const connection = await this.network.connectToGateway(nodeId, gateway.publicIp, gateway.tcpPort, joinMessage)
-        if (connection) {
+        try {
+          await this.network.connectToGateway(nodeId, gateway.publicIp, gateway.tcpPort, joinMessage)
           --count
-        } else {
-          throw(new Error('Error connecting to gateway node'))
+        } catch (e) {
+          throw new Error('Error connecting to gateway node: ' + e.stack)
         }
 
         if (!count) {
