@@ -8,7 +8,7 @@
     "@subspace/crypto": "github:subspace/crypto",
     "@subspace/database": "github:subspace/database",
     "@subspace/ledger": "github:subspace/ledger",
-    "@subspace/network": "github:subspace/network",
+    "@subspace/network": "github:subspace/network#network-cleanup",
     "@subspace/storage": "github:subspace/storage",
     "@subspace/tracker": "github:subspace/tracker",
     "@subspace/wallet": "github:subspace/wallet"

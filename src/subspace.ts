@@ -2,7 +2,7 @@ import EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
 import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
 import Storage from '@subspace/storage'
-import Network, {IGenericMessage, IGatewayNodeObject, IConnectionObject, IMessage, IMessageCallback, CONNECTION_TIMEOUT} from '@subspace/network'
+import Network, {IGenericMessage, IGatewayNodeObject, IMessage, IMessageCallback, CONNECTION_TIMEOUT} from '@subspace/network'
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject, IEntryObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
@@ -997,10 +997,7 @@ export default class Subspace extends EventEmitter {
   public leave(): void {
     // leave the subspace network, disconnecting from all peers
 
-    this.network.connections.forEach((connection) => {
-      // should you send a leave message for graceful shutdown?
-      this.disconnect(connection.nodeId)
-    })
+    this.network.disconnectFromAll()
 
     this.emit('left')
   }
@@ -1054,9 +1051,7 @@ export default class Subspace extends EventEmitter {
   public disconnect(nodeId: Uint8Array): void {
     // disconnect from another node as a peer
 
-    const connection = this.network.connections.get(nodeId)
-    if (connection) {
-      connection.destroy()
+    if (this.network.disconnect(nodeId)) {
       // this.network.removeNodeFromGraph(connection.nodeId)
       this.emit('disconnection', Buffer.from(nodeId).toString('hex'))
     }
