@@ -937,7 +937,7 @@ export default class Subspace extends EventEmitter {
         }
 
         if (!count) {
-          return(nodeId)
+          return nodeId
         }
       }
   }
@@ -985,6 +985,7 @@ export default class Subspace extends EventEmitter {
       }
 
       // if joining the network as a subsequent gateway
+      // TODO: Why connecting to many, but only requesting from one?
       const nodeId = await this.connectToGateways()
       const tracker = await this.requestTracker(nodeId)
       this.tracker.loadLht(tracker)
