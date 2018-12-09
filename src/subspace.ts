@@ -93,7 +93,10 @@ const MESSAGE_TYPES = {
   'tx-reply': 30,
   'tx-request': 31,
 
-  'join': 32
+  'join': 32,
+
+  'peer-added': 33,
+  'peer-removed': 33,
 }
 
 export default class Subspace extends EventEmitter {
@@ -306,8 +309,18 @@ export default class Subspace extends EventEmitter {
     // prune messages every 10 minutes
     this.startMessagePruner()
 
-    this.network.on('disconnection', (binaryId: Uint8Array) => {
-      // respond to disconneciton caused by another node
+    this.network.on('connection', (nodeId: Uint8Array) => {
+      // notify all my peers, who are not this peer, to add this peer to my connection object
+      this.createMessage(MESSAGE_TYPES['peer-added'], nodeId).then(peerAddedMessage => {
+        this.network.gossip(peerAddedMessage.toBinary(), nodeId)
+      })
+    })
+    this.network.on('disconnection', (nodeId: Uint8Array) => {
+      // notify all my peers to remove this peer from my connection object
+      this.createMessage(MESSAGE_TYPES['peer-removed'], nodeId).then(peerRemovedMessage => {
+        this.network.gossip(peerRemovedMessage.toBinary(), nodeId)
+      })
+      // respond to disconnection caused by another node
 
       // workflow
         // at each neighbor (initiator)
@@ -339,36 +352,36 @@ export default class Subspace extends EventEmitter {
         // gossip host-failure message
         // validate host-failure message at each node and remove from tracker
 
-      const nodeId = Buffer.from(binaryId).toString('hex')
+      const nodeIdString = Buffer.from(nodeId).toString('hex')
 
       // if hosting, listen for and report on failed hosts
       if (this.isHosting) {
-        if (this.neighbors.has(nodeId)) {
-          const entry = this.tracker.getEntry(nodeId)
+        if (this.neighbors.has(nodeIdString)) {
+          const entry = this.tracker.getEntry(nodeIdString)
           if (entry && entry.status) {
             // a valid neighbor has failed
             console.log('A valid neighbor has failed')
-            this.failedNeighbors.set(nodeId, false)
+            this.failedNeighbors.set(nodeIdString, false)
             const timeout = Math.random() * 10
             console.log('Failure timeout is', timeout)
             setTimeout(async () => {
               // later attempt to ping the node
 
               // if failure entry is still false (have not received a failure message)
-              const entry = this.failedNeighbors.get(nodeId)
+              const entry = this.failedNeighbors.get(nodeIdString)
               if (!entry) {
                 console.log('Timeout expired, pinging neighbors')
-                this.failedNeighbors.set(nodeId, true)
+                this.failedNeighbors.set(nodeIdString, true)
                 // compute their neighbors
                 const profile = this.wallet.getProfile()
                 const hosts = this.tracker.getActiveHosts()
-                const neighbors = new Set([...this.tracker.getHostNeighbors(nodeId, hosts)])
+                const neighbors = new Set([...this.tracker.getHostNeighbors(nodeIdString, hosts)])
                 neighbors.delete(profile.id)
 
                 console.log('Got failed host neighbors', neighbors)
 
                 // create the failure message with my singature object
-                const failureMessage = await this.tracker.createFailureMessage(nodeId)
+                const failureMessage = await this.tracker.createFailureMessage(nodeIdString)
 
                 // track the failure, inlcuding my singature object
                 const pendingFailure: IPendingFailure = {
@@ -377,7 +390,7 @@ export default class Subspace extends EventEmitter {
                   signatures: [failureMessage.data.signatures[0]],
                   createdAt: Date.now()
                 }
-                this.pendingFailures.set(nodeId, JSON.parse(JSON.stringify(pendingFailure)))
+                this.pendingFailures.set(nodeIdString, JSON.parse(JSON.stringify(pendingFailure)))
 
                 for (const neighbor of neighbors) {
                   console.log('sending a failure-request message to neighbor', neighbor)
@@ -389,7 +402,7 @@ export default class Subspace extends EventEmitter {
         }
       }
 
-      this.emit('disconnection', Buffer.from(nodeId).toString('hex'))
+      this.emit('disconnection', nodeIdString)
 
       // handle reply from each neighbor of failed host
 
@@ -397,6 +410,7 @@ export default class Subspace extends EventEmitter {
 
 
     this.network.on('message', async (id: Uint8Array, message: IMessage | Uint8Array, callback?: (message: Uint8Array) => void) => {
+      // TODO: Validation for everything is needed here, otherwise it WILL crash
       console.log('---MESSAGE---')
       if (message instanceof Uint8Array) {
         console.log('Received a binary message from ' + Buffer.from(id).toString('hex').substring(0, 8))
@@ -407,7 +421,7 @@ export default class Subspace extends EventEmitter {
           }
         )
         switch (messageObject.type) {
-          case MESSAGE_TYPES['join']:
+          case MESSAGE_TYPES['join']: {
             const payloadDecoded = JSON.parse(Buffer.from(messageObject.payload).toString())
             const payloadObject: IJoinMessageContents = {
               isGateway: payloadDecoded.isGateway,
@@ -424,7 +438,21 @@ export default class Subspace extends EventEmitter {
             const responseMessage = await this.createJoinMessage()
             callback(responseMessage.toBinary())
             await this.network.activatePendingConnectionV2(id, payloadObject)
-            break;
+            break
+          }
+          case MESSAGE_TYPES['peer-added']: {
+            const peer = messageObject.payload
+            const connection = this.network.getConnectionFromId(id)
+            connection.peers.push(peer)
+            break
+          }
+          case MESSAGE_TYPES['peer-removed']: {
+            const peer = messageObject.payload
+            const connection = this.network.getConnectionFromId(id)
+            const index = connection.peers.indexOf(peer)
+            connection.peers.splice(index, 1)
+            break
+          }
           default:
             console.warn('Unknown binary message type ' + messageObject.type)
         }
@@ -436,7 +464,6 @@ export default class Subspace extends EventEmitter {
         console.log('Received a', message.type, 'message')
       }
 
-      let valid = false
       // handle validation for gossiped messages here
       // specific rpc methods are emitted and handled in corresponding parent method
 
@@ -467,21 +494,6 @@ export default class Subspace extends EventEmitter {
             this.network.trackerResponseCallbacks.delete(id)
             callback(<IGenericMessage>message)
           }
-          break
-        }
-
-        case('peer-added'): {
-          const peer = (message as IGenericMessage).data
-          const connection = this.network.getConnectionFromId(id)
-          connection.peers.push(peer)
-          break
-        }
-
-        case('peer-removed'): {
-          const peer = (message as IGenericMessage).data
-          const connection = this.network.getConnectionFromId(id)
-          const index = connection.peers.indexOf(peer)
-          connection.peers.splice(index, 1)
           break
         }
 
