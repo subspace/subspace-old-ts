@@ -1005,21 +1005,20 @@ export default class Subspace extends EventEmitter {
     this.emit('left')
   }
 
-  public async connect(nodeId: Uint8Array): Promise<IConnectionObject> {
+  public async connect(nodeId: Uint8Array): Promise<Uint8Array> {
     // connect to another node directly as a peer
 
     // see if a connection already exists
     const nodeIdString = Buffer.from(nodeId).toString('hex')
-    let connection: IConnectionObject
     if (this.network.isPeer(nodeIdString)) {
-      connection = this.network.getConnectionFromId(nodeId)
+      // Do nothing, already connected
     }
 
     // if known gateway then connect over public ip
     else if (this.network.isGatewayNode(nodeIdString)) {
       const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0]
       const joinMessage = await this.createJoinMessage('join-request')
-      connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
+      await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage)
     }
 
     // else check if in the tracker
@@ -1027,7 +1026,7 @@ export default class Subspace extends EventEmitter {
       const host = this.tracker.getEntry(nodeIdString)
       if (host.status && host.isGateway) {
         const joinMessage = await this.createJoinMessage('join-request')
-        connection = await this.network.connectToGateway(nodeId, host.publicIp, host.tcpPort, joinMessage)
+        await this.network.connectToGateway(nodeId, host.publicIp, host.tcpPort, joinMessage)
       } else if (host.status) {
         // TODO: `validHosts` shouldn't be `[]`, fix this
         const neighbors = this.tracker.getHostNeighbors(nodeIdString, [])
@@ -1040,7 +1039,7 @@ export default class Subspace extends EventEmitter {
           for (let neighborId in public_neighbors) {
             const neighbor = this.tracker.getEntry(neighborId)
             const joinMessage = await this.createJoinMessage('join-request')
-            connection = await this.network.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, joinMessage)
+            await this.network.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, joinMessage)
             // relay signalling info here
             // connect over tcp or wrtc
             return
@@ -1048,8 +1047,8 @@ export default class Subspace extends EventEmitter {
         }
       }
     }
-    this.emit('connection', connection.nodeId)
-    return connection
+    this.emit('connection', nodeId)
+    return nodeId
   }
 
   public disconnect(nodeId: Uint8Array): void {
