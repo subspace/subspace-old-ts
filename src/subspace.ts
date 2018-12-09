@@ -1057,11 +1057,11 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  public async send(nodeId: Uint8Array, message: IMessage): Promise<void>
-  public async send(nodeId: string, message: IMessage): Promise<void>
-  public async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-  public async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
-  public async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
+  private async send(nodeId: Uint8Array, message: IMessage): Promise<void>
+  private async send(nodeId: string, message: IMessage): Promise<void>
+  private async send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  private async send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>
+  private async send(nodeId: string | Uint8Array, message: Uint8Array | IMessage, callback?: IMessageCallback) {
 
     // Not sure how to add this back in here
     // need to check if a connection exists, else try to connect before sending
