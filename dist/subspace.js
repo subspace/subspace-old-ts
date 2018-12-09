@@ -18,6 +18,7 @@ const network_1 = __importStar(require("@subspace/network"));
 const tracker_1 = require("@subspace/tracker");
 const ledger_1 = require("@subspace/ledger");
 const database_1 = require("@subspace/database");
+const Message_1 = require("./Message");
 const DEFAULT_PROFILE_NAME = 'name';
 const DEFAULT_PROFILE_EMAIL = 'name@name.com';
 const DEFAULT_PROFILE_PASSPHRASE = 'passphrase';
@@ -65,6 +66,9 @@ const MESSAGE_TYPES = {
     'tx': 29,
     'tx-reply': 30,
     'tx-request': 31,
+    'join': 32,
+    'peer-added': 33,
+    'peer-removed': 33,
 };
 class Subspace extends events_1.default {
     constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledged = null, interval = null) {
@@ -208,7 +212,7 @@ class Subspace extends events_1.default {
         this.ledger.on('applied-block', (block) => {
             this.emit('applied-block', block);
         });
-        // tracker 
+        // tracker
         this.tracker = new tracker_1.Tracker(this.storage, this.wallet, this.ledger);
         this.on('tx', (txRecord) => {
             // on valid pledge tx, add new inactive host entry into the tracker
@@ -229,12 +233,22 @@ class Subspace extends events_1.default {
         this.network = new network_1.default(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.tracker, this.env);
         // prune messages every 10 minutes
         this.startMessagePruner();
-        this.network.on('disconnection', (binaryId) => {
-            // respond to disconneciton caused by another node
+        this.network.on('connection', (nodeId) => {
+            // notify all my peers, who are not this peer, to add this peer to my connection object
+            this.createMessage(MESSAGE_TYPES['peer-added'], nodeId).then(peerAddedMessage => {
+                this.network.gossip(peerAddedMessage.toBinary(), nodeId);
+            });
+        });
+        this.network.on('disconnection', (nodeId) => {
+            // notify all my peers to remove this peer from my connection object
+            this.createMessage(MESSAGE_TYPES['peer-removed'], nodeId).then(peerRemovedMessage => {
+                this.network.gossip(peerRemovedMessage.toBinary(), nodeId);
+            });
+            // respond to disconnection caused by another node
             // workflow
             // at each neighbor (initiator)
             // listen for disconnection event, check if neighbor, set a timeout
-            // on timeout create a failure message w/nonce, add my signature, ref the nonce 
+            // on timeout create a failure message w/nonce, add my signature, ref the nonce
             // send failure message to each valid neighbor of failed node
             // at each neighbor (response)
             // each neighbor will validate that the host has failed
@@ -249,36 +263,36 @@ class Subspace extends events_1.default {
             // receive and validate the host-failure message
             // complete local failure procedures
             // respond to disconnection and send failure-request meesage to each neighbor of failed host
-            // each node will send a failure reply message 
+            // each node will send a failure reply message
             // collect failure reply messages until you have 2/3
             // gossip host-failure message
             // validate host-failure message at each node and remove from tracker
-            const nodeId = Buffer.from(binaryId).toString('hex');
+            const nodeIdString = Buffer.from(nodeId).toString('hex');
             // if hosting, listen for and report on failed hosts
             if (this.isHosting) {
-                if (this.neighbors.has(nodeId)) {
-                    const entry = this.tracker.getEntry(nodeId);
+                if (this.neighbors.has(nodeIdString)) {
+                    const entry = this.tracker.getEntry(nodeIdString);
                     if (entry && entry.status) {
-                        // a valid neighbor has failed 
+                        // a valid neighbor has failed
                         console.log('A valid neighbor has failed');
-                        this.failedNeighbors.set(nodeId, false);
+                        this.failedNeighbors.set(nodeIdString, false);
                         const timeout = Math.random() * 10;
                         console.log('Failure timeout is', timeout);
                         setTimeout(async () => {
-                            // later attempt to ping the node 
+                            // later attempt to ping the node
                             // if failure entry is still false (have not received a failure message)
-                            const entry = this.failedNeighbors.get(nodeId);
+                            const entry = this.failedNeighbors.get(nodeIdString);
                             if (!entry) {
                                 console.log('Timeout expired, pinging neighbors');
-                                this.failedNeighbors.set(nodeId, true);
+                                this.failedNeighbors.set(nodeIdString, true);
                                 // compute their neighbors
                                 const profile = this.wallet.getProfile();
                                 const hosts = this.tracker.getActiveHosts();
-                                const neighbors = new Set([...this.tracker.getHostNeighbors(nodeId, hosts)]);
+                                const neighbors = new Set([...this.tracker.getHostNeighbors(nodeIdString, hosts)]);
                                 neighbors.delete(profile.id);
                                 console.log('Got failed host neighbors', neighbors);
                                 // create the failure message with my singature object
-                                const failureMessage = await this.tracker.createFailureMessage(nodeId);
+                                const failureMessage = await this.tracker.createFailureMessage(nodeIdString);
                                 // track the failure, inlcuding my singature object
                                 const pendingFailure = {
                                     neighbors,
@@ -286,7 +300,7 @@ class Subspace extends events_1.default {
                                     signatures: [failureMessage.data.signatures[0]],
                                     createdAt: Date.now()
                                 };
-                                this.pendingFailures.set(nodeId, JSON.parse(JSON.stringify(pendingFailure)));
+                                this.pendingFailures.set(nodeIdString, JSON.parse(JSON.stringify(pendingFailure)));
                                 for (const neighbor of neighbors) {
                                     console.log('sending a failure-request message to neighbor', neighbor);
                                     await this.send(neighbor, failureMessage);
@@ -296,18 +310,60 @@ class Subspace extends events_1.default {
                     }
                 }
             }
-            this.emit('disconnection', Buffer.from(nodeId).toString('hex'));
+            this.emit('disconnection', nodeIdString);
             // handle reply from each neighbor of failed host
         });
-        this.network.on('message', async (message, id, callback) => {
+        this.network.on('message', async (id, message, callback) => {
+            // TODO: Validation for everything is needed here, otherwise it WILL crash
             console.log('---MESSAGE---');
+            if (message instanceof Uint8Array) {
+                console.log('Received a binary message from ' + Buffer.from(id).toString('hex').substring(0, 8));
+                const messageObject = await Message_1.Message.fromBinary(message, (data, publicKey, signature) => {
+                    return crypto.isValidSignature(data, signature, publicKey);
+                });
+                switch (messageObject.type) {
+                    case MESSAGE_TYPES['join']: {
+                        const payloadDecoded = JSON.parse(Buffer.from(messageObject.payload).toString());
+                        const payloadObject = {
+                            isGateway: payloadDecoded.isGateway,
+                            address: payloadDecoded.address,
+                            tcpPort: payloadDecoded.tcpPort,
+                            wsPort: payloadDecoded.wsPort,
+                            publicKey: payloadDecoded.publicKey,
+                            sender: payloadDecoded.sender,
+                            peers: payloadDecoded.peers.map((object) => {
+                                return Uint8Array.from(Object.values(object));
+                            })
+                        };
+                        const responseMessage = await this.createJoinMessage();
+                        callback(responseMessage.toBinary());
+                        await this.network.activatePendingConnectionV2(id, payloadObject);
+                        break;
+                    }
+                    case MESSAGE_TYPES['peer-added']: {
+                        const peer = messageObject.payload;
+                        const connection = this.network.getConnectionFromId(id);
+                        connection.peers.push(peer);
+                        break;
+                    }
+                    case MESSAGE_TYPES['peer-removed']: {
+                        const peer = messageObject.payload;
+                        const connection = this.network.getConnectionFromId(id);
+                        const index = connection.peers.indexOf(peer);
+                        connection.peers.splice(index, 1);
+                        break;
+                    }
+                    default:
+                        console.warn('Unknown binary message type ' + messageObject.type);
+                }
+                return;
+            }
             if (message.sender) {
                 console.log('Received a', message.type, 'message from', message.sender.substring(0, 8));
             }
             else {
                 console.log('Received a', message.type, 'message');
             }
-            let valid = false;
             // handle validation for gossiped messages here
             // specific rpc methods are emitted and handled in corresponding parent method
             // prevent revalidating and regoissiping the same messages
@@ -321,24 +377,6 @@ class Subspace extends events_1.default {
             switch (message.type) {
                 // don't validate tx and blocks until you have the full ledger
                 // and are ready to start farming
-                case 'join-request': {
-                    const connection = this.network.getConnectionFromId(id);
-                    if (!await this.network.isValidMessage(message)) {
-                        connection.destroy();
-                    }
-                    const reply = await this.createJoinMessage('join-response');
-                    connection.sendRequest(reply);
-                    await this.network.activatePendingConnection(message, id);
-                    break;
-                }
-                case 'join-response': {
-                    const callback = this.network.joinResponseCallbacks.get(id);
-                    if (callback) {
-                        this.network.joinResponseCallbacks.delete(id);
-                        await callback(message);
-                    }
-                    break;
-                }
                 case 'tracker-request': {
                     const lht = JSON.stringify([...this.tracker.lht]);
                     const reply = await this.network.createGenericMessage('tracker-response', lht);
@@ -351,19 +389,6 @@ class Subspace extends events_1.default {
                         this.network.trackerResponseCallbacks.delete(id);
                         callback(message);
                     }
-                    break;
-                }
-                case ('peer-added'): {
-                    const peer = message.data;
-                    const connection = this.network.getConnectionFromId(id);
-                    connection.peers.push(peer);
-                    break;
-                }
-                case ('peer-removed'): {
-                    const peer = message.data;
-                    const connection = this.network.getConnectionFromId(id);
-                    const index = connection.peers.indexOf(peer);
-                    connection.peers.splice(index, 1);
                     break;
                 }
                 case ('tx'): {
@@ -470,7 +495,7 @@ class Subspace extends events_1.default {
                         const activeHosts = this.tracker.getActiveHosts();
                         const neighbors = new Set([...this.tracker.getHostNeighbors(join.nodeId, activeHosts)]);
                         let validCount = 0;
-                        // for each valid neighbor, validate the signature 
+                        // for each valid neighbor, validate the signature
                         for (const proof of join.signatures) {
                             if (neighbors.has(crypto.getHash(proof.neighbor)) && proof.host === join.nodeId) {
                                 const unsignedProof = JSON.parse(JSON.stringify(proof));
@@ -530,7 +555,7 @@ class Subspace extends events_1.default {
                         const responseMessage = await this.network.createGenericMessage('neighbor-reply', neighborResponse);
                         await this.send(message.sender, responseMessage);
                     }
-                    // add to neighbors 
+                    // add to neighbors
                     this.neighbors.add(message.sender);
                     // send join reply with my signature proof
                     neighborResponse.proof = {
@@ -555,7 +580,7 @@ class Subspace extends events_1.default {
                         shardId: request.shardId,
                         records: []
                     };
-                    // validate the contract and shard match 
+                    // validate the contract and shard match
                     const contract = JSON.parse(JSON.stringify(this.ledger.clearedContracts.get(request.contractRecordId)));
                     const shards = this.database.computeShardArray(contract.contractId, contract.spaceReserved);
                     if (!shards.includes(request.shardId)) {
@@ -578,7 +603,7 @@ class Subspace extends events_1.default {
                         const responseMessage = await this.network.createGenericMessage('shard-reply', shardResponse);
                         this.send(message.sender, responseMessage);
                     }
-                    // valid request 
+                    // valid request
                     shardResponse.valid = true;
                     // get all records for shard
                     const shard = this.database.getShard(request.shardId);
@@ -627,7 +652,7 @@ class Subspace extends events_1.default {
                     break;
                 }
                 case ('pending-failure-request'): {
-                    // reply to a failure inquiry regarding one of my neighbors 
+                    // reply to a failure inquiry regarding one of my neighbors
                     const failure = message.data;
                     // if you have detected the failure and have not already signed or created a failure message
                     if (this.failedNeighbors.has(failure.nodeId)) {
@@ -646,7 +671,7 @@ class Subspace extends events_1.default {
                     const response = message.data;
                     const unsignedResponse = JSON.parse(JSON.stringify(response));
                     unsignedResponse.signature = null;
-                    // if valid signature, add to pending failure 
+                    // if valid signature, add to pending failure
                     if (await crypto.isValidSignature(unsignedResponse, response.signature, response.publicKey)) {
                         console.log('valid pending failure reply signature');
                         const pendingFailure = JSON.parse(JSON.stringify(this.pendingFailures.get(response.nodeId)));
@@ -659,9 +684,9 @@ class Subspace extends events_1.default {
                         // once you have 2/3 signatures turn into a failure proof
                         if (pendingFailure.signatures.length >= pendingFailure.neighbors.length * (2 / 3)) {
                             console.log('sufficient signatures from neighbors for host-failure');
-                            // resolve the failure request 
+                            // resolve the failure request
                             this.pendingFailures.delete(response.nodeId);
-                            // create and gossip the failure message 
+                            // create and gossip the failure message
                             const fullFailureMessage = await this.tracker.compileFailureMessage(response.nodeId, pendingFailure.createdAt, pendingFailure.nonce, pendingFailure.signatures);
                             this.network.gossip(fullFailureMessage);
                             // remove node from tracker?
@@ -757,50 +782,73 @@ class Subspace extends events_1.default {
             });
         });
     }
-    async createJoinMessage(type) {
-        // create a signed join message as part of connection handshake
+    async connectToGateways() {
+        // connect to the closest M gateway nodes from N known nodes
+        try {
+            let count = this.gatewayCount;
+            const gateways = this.network.getClosestGateways(count);
+            for (const gateway of gateways) {
+                const nodeId = Buffer.from(gateway.nodeId, 'hex');
+                await this.connectToGateway(nodeId, gateway.publicIp, gateway.tcpPort);
+                --count;
+                if (!count) {
+                    return nodeId;
+                }
+            }
+        }
+        catch (e) {
+            throw new Error('Error connecting to gateway node: ' + e.stack);
+        }
+    }
+    async connectToGateway(nodeId, publicIp, tcpPort) {
+        await this.network.connectTo(nodeId, publicIp, tcpPort);
+        const joinRequestMessage = await this.createJoinMessage();
+        this.send(nodeId, joinRequestMessage.toBinary(), async (response) => {
+            const responseMessage = await Message_1.Message.fromBinary(response, (data, publicKey, signature) => {
+                return crypto.isValidSignature(data, signature, publicKey);
+            });
+            const payloadDecoded = JSON.parse(Buffer.from(responseMessage.payload).toString());
+            const payloadObject = {
+                isGateway: payloadDecoded.isGateway,
+                address: payloadDecoded.address,
+                tcpPort: payloadDecoded.tcpPort,
+                wsPort: payloadDecoded.wsPort,
+                publicKey: payloadDecoded.publicKey,
+                sender: payloadDecoded.sender,
+                peers: payloadDecoded.peers.map((object) => {
+                    return Uint8Array.from(Object.values(object));
+                })
+            };
+            await this.network.activatePendingConnectionV2(nodeId, payloadObject);
+        });
+    }
+    createJoinMessage() {
         const profile = this.wallet.getProfile();
-        let message = {
-            version: 0,
-            type,
+        const payloadObject = {
             isGateway: this.isGateway,
             address: this.network.myAddress,
             tcpPort: this.network.myTcpPort,
             wsPort: this.network.myWsPort,
             publicKey: profile.publicKey,
             sender: profile.id,
-            timestamp: Date.now(),
-            peers: this.network.getPeers(),
-            signature: null
+            peers: this.network.getPeers()
         };
-        message.signature = await crypto.sign(message, profile.privateKeyObject);
-        return message;
+        const payload = Buffer.from(JSON.stringify(payloadObject));
+        return this.createMessage(MESSAGE_TYPES['join'], payload);
     }
-    async connectToGateways() {
-        // connect to the closest M gateway nodes from N known nodes
-        let count = this.gatewayCount;
-        const gateways = this.network.getClosestGateways(count);
-        for (const gateway of gateways) {
-            const joinMessage = await this.createJoinMessage('join-request');
-            const connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
-            if (connection) {
-                --count;
-            }
-            else {
-                throw (new Error('Error connecting to gateway node'));
-            }
-            if (!count) {
-                return (connection);
-            }
-        }
+    createMessage(type, payload) {
+        const profile = this.wallet.getProfile();
+        return Message_1.Message.create(type, 0, Date.now(), Buffer.from(profile.publicKey), payload, (data) => {
+            // TODO: TypeScript is not handling overloads properly here, hence hacks to make it work
+            return crypto.sign(data, profile.privateKeyObject);
+        });
     }
     async connectToAllGateways() {
         // connect to all known gateway nodes (for small network testing with full mesh)
         const peers = this.network.getPeers();
         for (const gateway of this.network.gatewayNodes) {
             if (!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-                const joinMessage = await this.createJoinMessage('join-request');
-                await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+                await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
                 const connectedGatewayCount = this.network.getGateways().length;
                 if (connectedGatewayCount === this.gatewayCount) {
                     return;
@@ -829,42 +877,37 @@ class Subspace extends events_1.default {
             return;
         }
         // if joining the network as a subsequent gateway
-        const gatewayConnection = await this.connectToGateways();
-        const tracker = await this.requestTracker(gatewayConnection.nodeId);
+        // TODO: Why connecting to many, but only requesting from one?
+        const nodeId = await this.connectToGateways();
+        const tracker = await this.requestTracker(nodeId);
         this.tracker.loadLht(tracker);
         this.network.computeNetworkGraph();
-        await this.requestGateways(gatewayConnection.nodeId);
+        await this.requestGateways(nodeId);
         this.emit('joined');
         return;
     }
     leave() {
         // leave the subspace network, disconnecting from all peers
-        this.network.connections.forEach((connection) => {
-            // should you send a leave message for graceful shutdown?
-            this.disconnect(connection.nodeId);
-        });
+        this.network.disconnectFromAll();
         this.emit('left');
     }
     async connect(nodeId) {
         // connect to another node directly as a peer
         // see if a connection already exists
         const nodeIdString = Buffer.from(nodeId).toString('hex');
-        let connection;
         if (this.network.isPeer(nodeIdString)) {
-            connection = this.network.getConnectionFromId(nodeId);
+            // Do nothing, already connected
         }
-        // if known gateway then connect over public ip 
+        // if known gateway then connect over public ip
         else if (this.network.isGatewayNode(nodeIdString)) {
             const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0];
-            const joinMessage = await this.createJoinMessage('join-request');
-            connection = await this.network.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+            await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
         }
         // else check if in the tracker
         else if (this.tracker.hasEntry(nodeIdString)) {
             const host = this.tracker.getEntry(nodeIdString);
             if (host.status && host.isGateway) {
-                const joinMessage = await this.createJoinMessage('join-request');
-                connection = await this.network.connectToGateway(nodeId, host.publicIp, host.tcpPort, joinMessage);
+                await this.connectToGateway(nodeId, host.publicIp, host.tcpPort);
             }
             else if (host.status) {
                 // TODO: `validHosts` shouldn't be `[]`, fix this
@@ -876,8 +919,7 @@ class Subspace extends events_1.default {
                     // may want to find closest to you or closest to host by distance
                     for (let neighborId in public_neighbors) {
                         const neighbor = this.tracker.getEntry(neighborId);
-                        const joinMessage = await this.createJoinMessage('join-request');
-                        connection = await this.network.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, joinMessage);
+                        await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort);
                         // relay signalling info here
                         // connect over tcp or wrtc
                         return;
@@ -885,14 +927,12 @@ class Subspace extends events_1.default {
                 }
             }
         }
-        this.emit('connection', connection.nodeId);
-        return connection;
+        this.emit('connection', nodeId);
+        return nodeId;
     }
     disconnect(nodeId) {
         // disconnect from another node as a peer
-        const connection = this.network.connections.get(nodeId);
-        if (connection) {
-            connection.destroy();
+        if (this.network.disconnect(nodeId)) {
             // this.network.removeNodeFromGraph(connection.nodeId)
             this.emit('disconnection', Buffer.from(nodeId).toString('hex'));
         }
@@ -1588,7 +1628,7 @@ class Subspace extends events_1.default {
             }
         }, timeRemaining);
         await this.requestPendingBlock();
-        // create the contract tx for the last block 
+        // create the contract tx for the last block
     }
     async getGenesisTime() {
         // get the
@@ -1601,7 +1641,7 @@ class Subspace extends events_1.default {
         const pendingBlockHeader = await this.requestPendingBlockHeader();
         if (pendingBlockHeader) {
             if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
-                // fetch each tx from gateway mem pool 
+                // fetch each tx from gateway mem pool
                 for (const txId of pendingBlockHeader.value.content.txSet) {
                     const pendingTxRecord = await this.requestPendingTx(txId);
                     const txRecordTest = await pendingTxRecord.isValid();
@@ -1688,8 +1728,7 @@ class Subspace extends events_1.default {
             const gateway = this.network.getGateway(nodeId);
             const connectedGateways = this.network.getConnectedGateways();
             if (gateway && !connectedGateways.includes(gateway.nodeId)) {
-                const joinMessage = await this.createJoinMessage('join-request');
-                await this.network.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, joinMessage);
+                await this.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort);
             }
             const pledgeTxId = this.wallet.profile.pledge.pledgeTx;
             const request = { pledgeTxId };
@@ -1708,8 +1747,8 @@ class Subspace extends events_1.default {
         });
     }
     async joinHosts() {
-        // after seeding and pledging space, join the host network 
-        // should add a delay or ensure the tx has been anchored in the ledger 
+        // after seeding and pledging space, join the host network
+        // should add a delay or ensure the tx has been anchored in the ledger
         // assumes the host already has an entry into the tracker
         const pledge = this.wallet.profile.pledge;
         if (!pledge) {
@@ -1737,7 +1776,7 @@ class Subspace extends events_1.default {
             }
         }
         await Promise.all(promises);
-        // compile signatures, create and gossip the join messsage 
+        // compile signatures, create and gossip the join messsage
         const signatures = [...this.neighborProofs.values()];
         const joinMessage = await this.tracker.createJoinMessage(this.network.myAddress, this.network.myTcpPort, this.network.myWsPort, this.isGateway, signatures);
         await this.network.gossip(joinMessage);
@@ -1759,8 +1798,8 @@ class Subspace extends events_1.default {
                 // valid response
                 this.resolveRequest('shard', response.shardId);
                 // later fetch the merkle hash of the shard from contract state to validate return data
-                // or get the record index from contract state  and validate each record 
-                // create the shard 
+                // or get the record index from contract state  and validate each record
+                // create the shard
                 await this.database.createShard(response.shardId, response.contractId);
                 for (const record of response.records) {
                     // save the record to disk and update shard
@@ -1799,7 +1838,7 @@ class Subspace extends events_1.default {
         // gossip my leave message, telling other hosts to deactivate me on their tracker
         const message = await this.tracker.createLeaveMessage();
         await this.network.gossip(message);
-        // stop hosting and disconnect from all neighbors 
+        // stop hosting and disconnect from all neighbors
         this.isHosting = false;
         for (const neighbor of this.neighbors) {
             this.disconnect(Buffer.from(neighbor, 'hex'));

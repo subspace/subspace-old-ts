@@ -9,9 +9,9 @@ export declare class Message {
      * @param type      0..255
      * @param version   0..255
      * @param timestamp Unix timestamp in ms
-     * @param publicKey 32 bytes
+     * @param publicKey X bytes
      * @param payload   0+ bytes
-     * @param signature 64 bytes signature
+     * @param signature Y bytes signature
      */
     private constructor();
     /**
@@ -20,13 +20,11 @@ export declare class Message {
      * @param type      0..255
      * @param version   0..255
      * @param timestamp Unix timestamp in ms
-     * @param publicKey 32 bytes
+     * @param publicKey X bytes
      * @param payload   0+ bytes
      * @param sign      callback function to sign the message
      */
-    static create(type: number, version: number, timestamp: number, publicKey: Uint8Array, payload: Uint8Array, sign: {
-        (data: Uint8Array): Promise<Uint8Array>;
-    }): Promise<Message>;
+    static create(type: number, version: number, timestamp: number, publicKey: Uint8Array, payload: Uint8Array, sign: (data: Uint8Array) => Promise<Uint8Array>): Promise<Message>;
     /**
      * Reconstructs previously created message from binary blob
      *
@@ -35,9 +33,7 @@ export declare class Message {
      *
      * @throws {Error}
      */
-    static fromBinary(binary: Uint8Array, verify: {
-        (data: Uint8Array, publicKey: Uint8Array, signature: Uint8Array): Promise<boolean>;
-    }): Message;
+    static fromBinary(binary: Uint8Array, verify: (data: Uint8Array, publicKey: Uint8Array, signature: Uint8Array) => Promise<boolean>): Message;
     /**
      * Packs message into binary blob (for instance, for sending via network)
      *

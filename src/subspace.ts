@@ -456,7 +456,7 @@ export default class Subspace extends EventEmitter {
           default:
             console.warn('Unknown binary message type ' + messageObject.type)
         }
-        return;
+        return
       }
       if (message.sender) {
         console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
@@ -967,10 +967,10 @@ export default class Subspace extends EventEmitter {
 
   private async connectToGateway(nodeId: Uint8Array, publicIp: string, tcpPort: number) {
     await this.network.connectTo(nodeId, publicIp, tcpPort)
-    const requestMessage = await this.createJoinMessage()
+    const joinRequestMessage = await this.createJoinMessage()
     this.send(
       nodeId,
-      requestMessage.toBinary(),
+      joinRequestMessage.toBinary(),
       async (response: Uint8Array) => {
         const responseMessage = await Message.fromBinary(
           response,
@@ -1016,7 +1016,7 @@ export default class Subspace extends EventEmitter {
       type,
       0,
       Date.now(),
-      Buffer.from(profile.publicKey, 'hex'),
+      Buffer.from(profile.publicKey),
       payload,
       (data: Uint8Array) => {
         // TODO: TypeScript is not handling overloads properly here, hence hacks to make it work
