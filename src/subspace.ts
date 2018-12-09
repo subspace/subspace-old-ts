@@ -1,9 +1,10 @@
-import EventEmitter from 'events'
+import * as EventEmitter from 'events'
 import * as crypto from '@subspace/crypto'
-import Wallet, { IContractData, IPledge, IProfileOptions} from '@subspace/wallet'
+import Wallet from '@subspace/wallet'
+import {IContractData, IProfileOptions} from "@subspace/wallet";
 import Storage from '@subspace/storage'
 import Network, {IGenericMessage, IGatewayNodeObject, IMessage, IMessageCallback, CONNECTION_TIMEOUT} from '@subspace/network'
-import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject, IEntryObject} from '@subspace/tracker'
+import {Tracker, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
 import {
@@ -26,8 +27,8 @@ import {
   IPendingFailure,
   IJoinMessageContents
 } from './interfaces'
-import { resolve } from 'dns';
 import {Message} from "./Message";
+import {ArrayMap} from "array-map-set";
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -120,6 +121,8 @@ export default class Subspace extends EventEmitter {
   public failedNeighbors: Map<string, boolean> = new Map()
   public pendingFailures: Map<string, IPendingFailure> = new Map()
   public evictedShards: Map <string, Set<string>> = new Map()
+
+  private trackerResponseCallbacks: Map<Uint8Array, {(message: IGenericMessage): void}> = ArrayMap()
 
   constructor(
     public bootstrap = false,
@@ -302,7 +305,6 @@ export default class Subspace extends EventEmitter {
       this.gatewayCount,
       this.delegated,
       this.wallet,
-      this.tracker,
       this.env
     )
 
@@ -437,7 +439,7 @@ export default class Subspace extends EventEmitter {
 
             const responseMessage = await this.createJoinMessage()
             callback(responseMessage.toBinary())
-            await this.network.activatePendingConnectionV2(id, payloadObject)
+            await this.network.activatePendingConnection(id, payloadObject)
             break
           }
           case MESSAGE_TYPES['peer-added']: {
@@ -489,9 +491,9 @@ export default class Subspace extends EventEmitter {
         }
 
         case 'tracker-response': {
-          const callback = this.network.trackerResponseCallbacks.get(id)
+          const callback = this.trackerResponseCallbacks.get(id)
           if (callback) {
-            this.network.trackerResponseCallbacks.delete(id)
+            this.trackerResponseCallbacks.delete(id)
             callback(<IGenericMessage>message)
           }
           break
@@ -990,7 +992,7 @@ export default class Subspace extends EventEmitter {
             return Uint8Array.from(Object.values(object))
           })
         }
-        await this.network.activatePendingConnectionV2(nodeId, payloadObject)
+        await this.network.activatePendingConnection(nodeId, payloadObject)
       }
     )
   }
@@ -2077,7 +2079,7 @@ export default class Subspace extends EventEmitter {
       const message = await this.network.createGenericMessage('tracker-request')
       await this.send(nodeId, message)
 
-      this.network.trackerResponseCallbacks.set(
+      this.trackerResponseCallbacks.set(
         nodeId,
         (message: IGenericMessage): void => {
           resolve(message.data)
@@ -2087,7 +2089,7 @@ export default class Subspace extends EventEmitter {
       // Reject connection that takes too long
       setTimeout(
         () => {
-          this.network.trackerResponseCallbacks.delete(nodeId)
+          this.trackerResponseCallbacks.delete(nodeId)
           reject()
         },
         CONNECTION_TIMEOUT * 1000
@@ -2095,7 +2097,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public async connectToNeighbor(nodeId:string): Promise<void> {
+  public async connectToNeighbor(nodeId: string): Promise<void> {
     return new Promise<void>( async (resolve, reject) => {
       // send a connection request to a valid neighbor
 
@@ -2141,13 +2143,13 @@ export default class Subspace extends EventEmitter {
     // connect to all valid neighbors
     const activeHosts = this.tracker.getActiveHosts()
     this.neighbors = new Set([...this.tracker.getHostNeighbors(profile.id, activeHosts)])
-    console.log('Connecting to', this.neighbors.size, 'closest hosts, out of ', activeHosts.length, 'active hosts.\n',  this.neighbors)
+    console.log('Connecting to', this.neighbors.size, 'closest hosts, out of', activeHosts.length, 'active hosts.\n',  this.neighbors)
 
     for (const nodeId of this.neighbors) {
       promises.push(this.connectToNeighbor(nodeId))
     }
 
-    // get all of my assigned shards, an expensive, (hoepfully) one-time operation
+    // get all of my assigned shards, an expensive, (hopefully) one-time operation
     for (const [recordId, original] of this.ledger.clearedContracts) {
       const contract = JSON.parse(JSON.stringify(original))
       const shards = this.database.computeShardArray(contract.contractId, contract.replicationFactor)
