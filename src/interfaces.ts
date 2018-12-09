@@ -1,6 +1,5 @@
 import { Record } from "@subspace/database"
 import { ISignatureObject } from "@subspace/tracker/dist/interfaces";
-import { IMessage } from '@subspace/network'
 
 export interface IRecordObject {
   key: string,
@@ -50,7 +49,7 @@ export interface IRevResponse {
 export interface IDelRequest {
   shardId: string
   recordId: string
-  replicationFactor: number 
+  replicationFactor: number
   contractKey: string
   signature: string
 }
@@ -110,12 +109,12 @@ export interface IPendingFailure {
   createdAt: number
 }
 
-export interface IJoinMessage extends IMessage {
-  type: 'join-request' | 'join-response'
-  isGateway: boolean
+export interface IJoinMessageContents {
+  isGateway: boolean,
+  address: string,
+  tcpPort: number,
+  wsPort: number,
+  publicKey: string,
+  sender: string,
   peers: Uint8Array[]
-  address: string
-  tcpPort: number
-  wsPort: number
 }
-

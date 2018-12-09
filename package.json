@@ -5,7 +5,7 @@
   "main": "dist/subspace.js",
   "types": "dist/subspace.d.ts",
   "dependencies": {
-    "@subspace/crypto": "github:subspace/crypto",
+    "@subspace/crypto": "github:subspace/crypto#binary-signatures",
     "@subspace/database": "github:subspace/database",
     "@subspace/ledger": "github:subspace/ledger",
     "@subspace/network": "github:subspace/network#network-cleanup",

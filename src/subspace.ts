@@ -6,8 +6,28 @@ import Network, {IGenericMessage, IGatewayNodeObject, IMessage, IMessageCallback
 import {Tracker, IHostMessage, IJoinObject, ILeaveObject, IFailureObject, ISignatureObject, IEntryObject} from '@subspace/tracker'
 import {Ledger, Block} from '@subspace/ledger'
 import {DataBase, Record, IValue} from '@subspace/database'
-import { IRecordObject, IPutRequest, IRevRequest, IDelRequest, IPutResponse, IGetResponse, IRevResponse, IDelResponse, IGetRequest, IContractRequest, IContractResponse, INeighborProof, INeighborResponse, INeighborRequest, IShardRequest, IShardResponse, IPendingFailure, IJoinMessage } from './interfaces'
+import {
+  IRecordObject,
+  IPutRequest,
+  IRevRequest,
+  IDelRequest,
+  IPutResponse,
+  IGetResponse,
+  IRevResponse,
+  IDelResponse,
+  IGetRequest,
+  IContractRequest,
+  IContractResponse,
+  INeighborProof,
+  INeighborResponse,
+  INeighborRequest,
+  IShardRequest,
+  IShardResponse,
+  IPendingFailure,
+  IJoinMessageContents
+} from './interfaces'
 import { resolve } from 'dns';
+import {Message} from "./Message";
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -72,6 +92,8 @@ const MESSAGE_TYPES = {
   'tx': 29,
   'tx-reply': 30,
   'tx-request': 31,
+
+  'join': 32
 }
 
 export default class Subspace extends EventEmitter {
@@ -374,8 +396,40 @@ export default class Subspace extends EventEmitter {
     })
 
 
-    this.network.on('message', async (message: IMessage, id: Uint8Array, callback) => {
+    this.network.on('message', async (id: Uint8Array, message: IMessage | Uint8Array, callback?: (message: Uint8Array) => void) => {
       console.log('---MESSAGE---')
+      if (message instanceof Uint8Array) {
+        console.log('Received a binary message from ' + Buffer.from(id).toString('hex').substring(0, 8))
+        const messageObject = await Message.fromBinary(
+          message,
+          (data, publicKey, signature) => {
+            return crypto.isValidSignature(data, signature, publicKey)
+          }
+        )
+        switch (messageObject.type) {
+          case MESSAGE_TYPES['join']:
+            const payloadDecoded = JSON.parse(Buffer.from(messageObject.payload).toString())
+            const payloadObject: IJoinMessageContents = {
+              isGateway: payloadDecoded.isGateway,
+              address: payloadDecoded.address,
+              tcpPort: payloadDecoded.tcpPort,
+              wsPort: payloadDecoded.wsPort,
+              publicKey: payloadDecoded.publicKey,
+              sender: payloadDecoded.sender,
+              peers: payloadDecoded.peers.map((object: {[index: string]: number}) => {
+                return Uint8Array.from(Object.values(object))
+              })
+            }
+
+            const responseMessage = await this.createJoinMessage()
+            callback(responseMessage.toBinary())
+            await this.network.activatePendingConnectionV2(id, payloadObject)
+            break;
+          default:
+            console.warn('Unknown binary message type ' + messageObject.type)
+        }
+        return;
+      }
       if (message.sender) {
         console.log('Received a', message.type, 'message from', message.sender.substring(0, 8))
       } else {
@@ -399,26 +453,6 @@ export default class Subspace extends EventEmitter {
 
         // don't validate tx and blocks until you have the full ledger
         // and are ready to start farming
-
-        case 'join-request': {
-          const connection = this.network.getConnectionFromId(id)
-          if (!await this.network.isValidMessage(message)) {
-            connection.destroy()
-          }
-          const reply = await this.createJoinMessage('join-response')
-          connection.sendRequest(reply)
-          await this.network.activatePendingConnection(<IJoinMessage>message, id)
-          break
-        }
-
-        case 'join-response': {
-          const callback = this.network.joinResponseCallbacks.get(id)
-          if (callback) {
-            this.network.joinResponseCallbacks.delete(id)
-            await callback(<IJoinMessage>message)
-          }
-          break
-        }
 
         case 'tracker-request': {
           const lht = JSON.stringify([...this.tracker.lht])
@@ -898,29 +932,6 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  private async createJoinMessage(type: 'join-request' | 'join-response'): Promise<IJoinMessage> {
-    // create a signed join message as part of connection handshake
-
-    const profile = this.wallet.getProfile()
-
-    let message: IJoinMessage = {
-      version: 0,
-      type,
-      isGateway: this.isGateway,
-      address: this.network.myAddress,
-      tcpPort: this.network.myTcpPort,
-      wsPort: this.network.myWsPort,
-      publicKey: profile.publicKey,
-      sender: profile.id,
-      timestamp: Date.now(),
-      peers: this.network.getPeers(),
-      signature: null
-    }
-
-    message.signature = await crypto.sign(message, profile.privateKeyObject)
-    return message
-  }
-
   private async connectToGateways(): Promise <Uint8Array> {
       // connect to the closest M gateway nodes from N known nodes
 
@@ -943,8 +954,63 @@ export default class Subspace extends EventEmitter {
   }
 
   private async connectToGateway(nodeId: Uint8Array, publicIp: string, tcpPort: number) {
-    const joinMessage = await this.createJoinMessage('join-request')
-    await this.network.connectToGateway(nodeId, publicIp, tcpPort, joinMessage)
+    await this.network.connectTo(nodeId, publicIp, tcpPort)
+    const requestMessage = await this.createJoinMessage()
+    this.send(
+      nodeId,
+      requestMessage.toBinary(),
+      async (response: Uint8Array) => {
+        const responseMessage = await Message.fromBinary(
+          response,
+          (data, publicKey, signature) => {
+            return crypto.isValidSignature(data, signature, publicKey)
+          }
+        )
+        const payloadDecoded = JSON.parse(Buffer.from(responseMessage.payload).toString())
+        const payloadObject: IJoinMessageContents = {
+          isGateway: payloadDecoded.isGateway,
+          address: payloadDecoded.address,
+          tcpPort: payloadDecoded.tcpPort,
+          wsPort: payloadDecoded.wsPort,
+          publicKey: payloadDecoded.publicKey,
+          sender: payloadDecoded.sender,
+          peers: payloadDecoded.peers.map((object: {[index: string]: number}) => {
+            return Uint8Array.from(Object.values(object))
+          })
+        }
+        await this.network.activatePendingConnectionV2(nodeId, payloadObject)
+      }
+    )
+  }
+
+  private createJoinMessage(): Promise<Message> {
+    const profile = this.wallet.getProfile()
+    const payloadObject: IJoinMessageContents = {
+      isGateway: this.isGateway,
+      address: this.network.myAddress,
+      tcpPort: this.network.myTcpPort,
+      wsPort: this.network.myWsPort,
+      publicKey: profile.publicKey,
+      sender: profile.id,
+      peers: this.network.getPeers()
+    }
+    const payload = Buffer.from(JSON.stringify(payloadObject))
+    return this.createMessage(MESSAGE_TYPES['join'], payload)
+  }
+
+  private createMessage(type: number, payload: Uint8Array): Promise<Message> {
+    const profile = this.wallet.getProfile()
+    return Message.create(
+      type,
+      0,
+      Date.now(),
+      Buffer.from(profile.publicKey, 'hex'),
+      payload,
+      (data: Uint8Array) => {
+        // TODO: TypeScript is not handling overloads properly here, hence hacks to make it work
+        return crypto.sign(data, profile.privateKeyObject) as any as Promise<Uint8Array>
+      }
+    )
   }
 
   public async connectToAllGateways(): Promise<void> {
