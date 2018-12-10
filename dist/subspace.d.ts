@@ -1,8 +1,9 @@
 /// <reference types="node" />
-import EventEmitter from 'events';
-import Wallet, { IProfileOptions } from '@subspace/wallet';
+import * as EventEmitter from 'events';
+import Wallet from '@subspace/wallet';
+import { IProfileOptions } from "@subspace/wallet";
 import Storage from '@subspace/storage';
-import Network, { IConnectionObject, IMessage, IMessageCallback } from '@subspace/network';
+import Network from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
@@ -34,6 +35,7 @@ export default class Subspace extends EventEmitter {
     failedNeighbors: Map<string, boolean>;
     pendingFailures: Map<string, IPendingFailure>;
     evictedShards: Map<string, Set<string>>;
+    private trackerResponseCallbacks;
     constructor(bootstrap?: boolean, gatewayNodes?: string[], gatewayCount?: number, delegated?: boolean, name?: string, email?: string, passphrase?: string, spacePledged?: number | null, interval?: number);
     private addRequest;
     private removeRequest;
@@ -50,17 +52,16 @@ export default class Subspace extends EventEmitter {
     createProfile(options?: IProfileOptions): Promise<void>;
     deleteProfile(): Promise<void>;
     requestGateways(nodeId: Uint8Array): Promise<void>;
-    private createJoinMessage;
     private connectToGateways;
+    private connectToGateway;
+    private createJoinMessage;
+    private createMessage;
     connectToAllGateways(): Promise<void>;
     join(myTcpPort: number, myAddress: 'localhost', myWsPort?: number): Promise<void>;
     leave(): void;
-    connect(nodeId: Uint8Array): Promise<IConnectionObject>;
+    connect(nodeId: Uint8Array): Promise<Uint8Array>;
     disconnect(nodeId: Uint8Array): void;
-    send(nodeId: Uint8Array, message: IMessage): Promise<void>;
-    send(nodeId: string, message: IMessage): Promise<void>;
-    send(nodeId: Uint8Array, message: Uint8Array, callback?: IMessageCallback): Promise<void>;
-    send(nodeId: string, message: Uint8Array, callback?: IMessageCallback): Promise<void>;
+    private send;
     seedPlot(size?: number): Promise<void>;
     getBalance(address?: string): number;
     sendCredits(amount: number, address: string): Promise<Record>;
