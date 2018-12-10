@@ -105,6 +105,7 @@ export interface IShardResponse {
 
 export interface IPendingFailure {
   neighbors: Set<string>
+  nonce: string,
   signatures: ISignatureObject[]
   createdAt: number
 }

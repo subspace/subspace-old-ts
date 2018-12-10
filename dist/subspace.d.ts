@@ -94,9 +94,8 @@ export default class Subspace extends EventEmitter {
     requestTrackerHash(nodeId: Uint8Array): Promise<string>;
     requestTracker(nodeId: Uint8Array): Promise<any>;
     connectToNeighbor(nodeId: string): Promise<void>;
-    joinHosts(count: number): Promise<void>;
+    joinHosts(): Promise<void>;
     requestShard(nodeId: string, shardId: string, contractRecordId: string): Promise<void>;
     private replicateShards;
     leaveHosts(): Promise<void>;
-    onHostFailure(): Promise<void>;
 }
