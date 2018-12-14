@@ -29,6 +29,7 @@ import {
 } from './interfaces'
 import {Message} from "./Message";
 import {ArrayMap} from "array-map-set";
+import { IContract } from '@subspace/ledger/dist/interfaces';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -41,7 +42,7 @@ const DEFAULT_CONTRACT_EMAIL = 'key@key.com'
 const DEFAULT_CONTRACT_PASSPHRASE = 'lockandkey'
 const DEFAULT_CONTRACT_SIZE = 1000000000  // 1 GB in bytes
 const DEFAULT_CONTRACT_TTL = 2628000000   // 1 month in ms
-const DEFAULT_CONTRACT_REPLICATION_FACTOR = 2
+const DEFAULT_CONTRACT_REPLICATION_FACTOR = 1
 
 const DEFAULT_GATEWAY_NODES = [
   '772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:port:8125'
@@ -97,7 +98,7 @@ const MESSAGE_TYPES = {
   'join': 32,
 
   'peer-added': 33,
-  'peer-removed': 33,
+  'peer-removed': 34,
 }
 
 export default class Subspace extends EventEmitter {
@@ -296,7 +297,7 @@ export default class Subspace extends EventEmitter {
     })
 
     // database
-    this.database = new DataBase(this.wallet, this.storage)
+    this.database = new DataBase(this.wallet, this.storage, this.tracker)
 
     // network
     this.network = new Network(
@@ -424,6 +425,7 @@ export default class Subspace extends EventEmitter {
         )
         switch (messageObject.type) {
           case MESSAGE_TYPES['join']: {
+            console.log('received a join message')
             const payloadDecoded = JSON.parse(Buffer.from(messageObject.payload).toString())
             const payloadObject: IJoinMessageContents = {
               isGateway: payloadDecoded.isGateway,
@@ -443,12 +445,14 @@ export default class Subspace extends EventEmitter {
             break
           }
           case MESSAGE_TYPES['peer-added']: {
+            console.log('received a peer added message')
             const peer = messageObject.payload
             const connection = this.network.getConnectionFromId(id)
             connection.peers.push(peer)
             break
           }
           case MESSAGE_TYPES['peer-removed']: {
+            console.log('received a peer removed message')
             const peer = messageObject.payload
             const connection = this.network.getConnectionFromId(id)
             const index = connection.peers.indexOf(peer)
@@ -511,8 +515,12 @@ export default class Subspace extends EventEmitter {
                 const txMessage = await this.network.createGenericMessage('tx', (message as IGenericMessage).data)
                 this.network.gossip(txMessage, Buffer.from(message.sender, 'hex'))
                 this.emit('tx', txRecord)
+              } else {
+                console.log(txRecord)
+                console.log(txTest.reason)
+                throw new Error('Invalid TX received via gossip')
               }
-            }
+            } 
           }
           break
         }
@@ -621,6 +629,7 @@ export default class Subspace extends EventEmitter {
                 const unsignedProof = JSON.parse(JSON.stringify(proof))
                 unsignedProof.signature = null
                 if (await crypto.isValidSignature(unsignedProof, proof.signature, proof.neighbor)) {
+                  console.log('valid join signature')
                   validCount ++
                 } else {
                   throw new Error('invalid host-join signature')
@@ -642,8 +651,10 @@ export default class Subspace extends EventEmitter {
                   this.database.delShard(shard)
                 }
               }
-            } else {
+            } 
+            else {
               console.log(validCount)
+              console.log(neighbors.size)
               console.log(neighbors.size * (2/3))
               throw new Error('Insuffecient singatures for host join')
             }
@@ -899,6 +910,146 @@ export default class Subspace extends EventEmitter {
           break
         }
 
+        case('contract-request'): {
+          // when host to hold contract state receives the contract-request
+
+          const request: IContractRequest = (message as IGenericMessage).data
+
+          // validate the contract-request
+          const tx = this.database.loadUnpackedRecord(request.tx)
+          const contractState = this.database.loadUnpackedRecord(request.contract)
+          const txTest = await this.ledger.onTx(tx)
+          if (!txTest.valid) {
+            this.sendContractResponse(message.sender, false, txTest.reason, contractState.key )
+            return
+          }
+
+          // validate the contract tx matches the contract record
+          const contractTest = await this.database.isValidMutableContractRequest(tx, contractState)
+          if (!contractTest) {
+            const reason = 'Invalid contract request, mutable contract state public key does not match funding transaction contract signature'
+            this.sendContractResponse(message.sender, false, reason, contractState.key)
+            throw new Error(reason)
+            return
+          }
+
+          // validate the contract mutable record
+          // const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(contractState.key))))
+          const contract: IContract = {
+            id: tx.key,
+            contractSig: tx.value.content.contactSig,
+            contractId: tx.value.content.contractId,
+            spaceReserved: tx.value.content.spaceReserved,
+            replicationFactor: tx.value.content.replicationFactor,
+            ttl: tx.value.content.ttl,
+            createdAt: tx.value.content.createdAt,
+          }
+
+          const testRequest = await this.database.isValidPutRequest(contractState, contract, request)
+          if (!testRequest.valid) {
+            this.sendContractResponse(message.sender, false, testRequest.reason, contractState.key )
+            throw new Error(testRequest.reason)
+            return
+          }
+
+          // assume valid
+          await this.database.saveRecord(contractState, contract)
+          const proof = contractState.createPoR(this.wallet.profile.user.id)
+          this.sendContractResponse(message.sender, true, proof, contractState.key)
+          console.log('Sent valid contract response')
+          break
+        }
+
+        case('put-request'): {
+          // validate the contract request
+          const request: IPutRequest = (message as IGenericMessage).data
+          const record = this.database.loadPackedRecord(request.record)
+          const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
+          const testRequest = await this.database.isValidPutRequest(record, contract, request)
+          if (!testRequest.valid)  {
+            this.sendPutResponse(message.sender, false, testRequest.reason, record.key)
+            return
+          }
+  
+          // validate the record
+          const testValid = await record.isValid(message.sender)
+          if (!testValid.valid)  {
+            // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
+            this.sendPutResponse(message.sender, false, testValid.reason, record.key)
+            return
+          }
+  
+          // store the record, create PoR, and send reply
+          await this.database.saveRecord(record, contract)
+          const proof = record.createPoR(this.wallet.profile.user.id)
+          this.sendPutResponse(message.sender, true, proof, record.key)
+          break
+        }
+
+        case('get-request'): {
+          // unpack key and validate request
+          const request: IGetRequest = (message as IGenericMessage).data
+          const record = await this.database.getRecord(request.recordId)
+          const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor)
+          if (!testRequest.valid)  {
+            this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason)
+            return
+          }
+  
+          // send the record and PoR back to client
+          const proof = record.createPoR(this.wallet.profile.user.id)
+          this.sendGetResponse(message.sender, true, request.recordId, proof, record)
+          break
+        }
+
+        case('rev-request'): {
+          // load the request and new record
+          const request: IRevRequest = (message as IGenericMessage).data
+          const newRecord = this.database.loadPackedRecord(request.record)
+          const oldRecord = await this.database.getRecord(newRecord.key)
+          const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
+          const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request)
+  
+          if (!testRequest.valid)  {
+            this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key)
+            return
+          }
+  
+          // validate the new record
+          const testValid = await newRecord.isValid(message.sender)
+          if (!testValid.valid)  {
+            this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key)
+            return
+          }
+  
+          const sizeDelta = oldRecord.getSize() - newRecord.getSize()
+  
+          // update the record, create PoR and send reply
+          await this.database.saveRecord(newRecord, contract, true, sizeDelta)
+          const proof = newRecord.createPoR(this.wallet.profile.user.id,)
+          await this.sendRevResponse(message.sender, true, proof, newRecord.key)
+          break
+        }
+
+        case('del-request'): {
+          // unpack key and validate request
+          const request: IDelRequest = (message as IGenericMessage).data
+          const record = await this.database.getRecord(request.recordId)
+          const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
+  
+          const testRequest = await this.database.isValidDelRequest(record, contract, request.shardId, request)
+          if (!testRequest.valid)  {
+            this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId)
+            return
+          }
+  
+          // delete the record send PoD back to client
+          await this.database.delRecord(record, request.shardId)
+          const proof = record.createPoD(this.wallet.profile.user.id)
+          await this.sendDelResponse(message.sender, true, proof, record.key)
+          break
+        }
+
         default: {
           this.emit(message.type, (message as IGenericMessage).data, Buffer.from(id).toString('hex'))
         }
@@ -974,6 +1125,7 @@ export default class Subspace extends EventEmitter {
       nodeId,
       joinRequestMessage.toBinary(),
       async (response: Uint8Array) => {
+        console.log('received a gateway response')
         const responseMessage = await Message.fromBinary(
           response,
           (data, publicKey, signature) => {
@@ -1044,39 +1196,39 @@ export default class Subspace extends EventEmitter {
   }
 
   public async join(myTcpPort = 8124, myAddress: 'localhost', myWsPort?: number): Promise<void> {
-      // join the subspace network as a node, connecting to some known gateway nodes
+    // join the subspace network as a node, connecting to some known gateway nodes
 
-      // listen for new incoming connections
-      if (this.env === 'gateway' || this.env === 'private-host') {
-        await this.network.startTcpServer(myTcpPort, myAddress)
-        this.network.myAddress = myAddress
-        this.network.myTcpPort = myTcpPort
+    // listen for new incoming connections
+    if (this.env === 'gateway' || this.env === 'private-host') {
+      await this.network.startTcpServer(myTcpPort, myAddress)
+      this.network.myAddress = myAddress
+      this.network.myTcpPort = myTcpPort
 
-        if (myWsPort) {
-          await this.network.startWsServer('0.0.0.0', myWsPort)
-          this.network.myWsPort = myWsPort
-        }
+      if (myWsPort) {
+        await this.network.startWsServer('0.0.0.0', myWsPort)
+        this.network.myWsPort = myWsPort
       }
+    }
 
-      // reject if trying to bootstrap and not a gateway
-      if (this.bootstrap && this.env !== 'gateway') {
-        throw new Error('Only a gateway node may bootstrap the network')
-      }
+    // reject if trying to bootstrap and not a gateway
+    if (this.bootstrap && this.env !== 'gateway') {
+      throw new Error('Only a gateway node may bootstrap the network')
+    }
 
-      // resolve if trying to bootstrap as genesis gateway
-      if (this.bootstrap) {
-        return
-      }
-
-      // if joining the network as a subsequent gateway
-      // TODO: Why connecting to many, but only requesting from one?
-      const nodeId = await this.connectToGateways()
-      const tracker = await this.requestTracker(nodeId)
-      this.tracker.loadLht(tracker)
-      this.network.computeNetworkGraph()
-      await this.requestGateways(nodeId)
-      this.emit('joined')
+    // resolve if trying to bootstrap as genesis gateway
+    if (this.bootstrap) {
       return
+    }
+
+    // if joining the network as a subsequent gateway
+    // TODO: Why connecting to many, but only requesting from one?
+    const nodeId = await this.connectToGateways()
+    const tracker = await this.requestTracker(nodeId)
+    this.tracker.loadLht(tracker)
+    this.network.computeNetworkGraph()
+    await this.requestGateways(nodeId)
+    this.emit('joined')
+    return
   }
 
   public leave(): void {
@@ -1252,16 +1404,20 @@ export default class Subspace extends EventEmitter {
 
   // may also want to add the ability to do pay per put since the ledger is much faster now
 
+  // space pledged -> 10 GB per host 
+  // space reserved -> 1 GB per contract 
+
   public async reserveSpace(
-    name = DEFAULT_CONTRACT_NAME,
-    email = DEFAULT_CONTRACT_EMAIL,
-    passphrase = DEFAULT_CONTRACT_PASSPHRASE,
     spaceReserved = DEFAULT_CONTRACT_SIZE,
     ttl = DEFAULT_CONTRACT_TTL,
-    replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR
+    replicationFactor = DEFAULT_CONTRACT_REPLICATION_FACTOR,
+    name = DEFAULT_CONTRACT_NAME,
+    email = DEFAULT_CONTRACT_EMAIL,
+    passphrase = DEFAULT_CONTRACT_PASSPHRASE
   ): Promise<void> {
     if (ttl) {
       const {txRecord, contractRecord} = await this.createMutableContract(name, email, passphrase, spaceReserved, ttl, replicationFactor)
+      // console.log(contractRecord)
       await this.putContract(txRecord, contractRecord)
     }
   }
@@ -1321,6 +1477,17 @@ export default class Subspace extends EventEmitter {
 
     await contractRecord.update(contractState, profile)
 
+    const contract = {
+      id: contractRecord.key,
+      createdAt: contractRecord.value.createdAt,
+      spaceReserved,
+      replicationFactor,
+      ttl,
+      contractSig
+    }
+
+    await this.database.saveRecord(contractRecord, contract)
+
     // add the contract keys and data to your wallet
     const walletContract: IContractData = {
       key: {
@@ -1355,62 +1522,30 @@ export default class Subspace extends EventEmitter {
 
   public putContract(txRecord: Record, contractRecord: Record): Promise<void> {
     return new Promise(async (resolve, reject) => {
-      // contact the contract holders so they may initialize contract state
+      // create the contract request
+      const profile = this.wallet.getProfile()
       const contract = this.wallet.getPublicContract()
       const privateKeyObject = this.wallet.contract.key.privateObject
-      const hosts = this.database.getShardAndHostsForKey(contract.id, contract).hosts
+      const hosts = this.database.getShardAndHostsForKey(contract.id, contract).hosts      
       const request: IContractRequest = {
         tx: txRecord.getRecord(),
         contract: contractRecord.getRecord(),
         signature: null
       }
 
-      request.signature = await crypto.sign(JSON.stringify(request), privateKeyObject)
+      request.signature = await crypto.sign(request, privateKeyObject)
+
+      // send request to each valid storage host for contract state, so they may initialize
+      console.log('Sending contract request to', hosts)
       await this.addRequest('contract', contractRecord.key, request, hosts)
 
-      // gossip the contract tx to the network
+      // gossip the contract tx to the rest of the network for includsion in the chain
       const contractTxMessage = await this.network.createGenericMessage('tx', txRecord.getRecord())
       this.network.gossip(contractTxMessage)
 
-      // when host to hold contract receives the contract-request
-      this.on('contract-request', async (message: IGenericMessage) => {
-        const request: IContractRequest = message.data
-
-        // validate the contract-request
-        const tx = this.database.loadUnpackedRecord(request.tx)
-        const contractState = this.database.loadUnpackedRecord(request.contract)
-        const txTest = await this.ledger.onTx(tx)
-        if (!txTest.valid) {
-          this.sendContractResponse(message.sender, false, txTest.reason, contractState.key )
-          return
-        }
-
-        // validate the contract tx matches the contract record
-        const contractTest = await this.database.isValidMutableContractRequest(tx, contractState)
-        if (!contractTest) {
-          const reason = 'Invalid contract request, mutable contract state public key does not match funding transaction contract signature'
-          this.sendContractResponse(message.sender, false, reason, contractState.key)
-          return
-        }
-
-        // validate the contract mutable record
-        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(contractState.key))))
-        const testRequest = await this.database.isValidPutRequest(contractState, contract, request)
-        if (!testRequest.valid) {
-          this.sendContractResponse(message.sender, false, testRequest.reason, contractState.key )
-          return
-        }
-
-        // assume valid
-        await this.database.saveRecord(contractRecord, contract)
-        const proof = contractRecord.createPoR(this.wallet.profile.user.id)
-        this.sendContractResponse(message.sender, true, proof, contractRecord.key)
-      })
-
       // when client receives the contract-reply from host
-      this.network.on('contract-reply', async (message: IGenericMessage) => {
+      this.on('contract-reply', async (response: IContractResponse, sender) => {
 
-        const response: IContractResponse = message.data
         const contract = this.wallet.getPublicContract()
         if (!response.valid) {
           reject(new Error(response.reason))
@@ -1418,25 +1553,28 @@ export default class Subspace extends EventEmitter {
 
         // validate PoR
         const record = await this.database.getRecord(response.key)
-        if (! record.isValidPoR(message.sender, response.reason))  {
+        // await record.unpack(profile.privateKeyObject)
+        // console.log(record)
+        if (! contractRecord.isValidPoR(sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
 
         // remove from pending requests and get size
-        const pendingSize = this.getRequestSize('reserve', record.key)
-        this.removeRequest('reserve', record.key, message.sender)
+        const pendingSize = this.getRequestSize('contract', record.key)
+        this.removeRequest('contract', record.key, sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
+
+        // emit event and adjust contract when fully resolved
+        if (pendingSize === 1) {
+          const hosts = this.resolveRequest('contract', record.key)
+          this.emit('space-reserved', record.key, hosts)
+          this.removeListener('contract-reply', () => {})
+        }
 
         // resolve on first valid response
         if (pendingSize === hostLength) {
           resolve()
-        }
-
-        // emit event and adjust contract when fully resolved
-        if (pendingSize === 1) {
-          const hosts = this.resolveRequest('reserve', record.key)
-          this.emit('space-reserved', record.key, hosts)
         }
       })
     })
@@ -1464,33 +1602,7 @@ export default class Subspace extends EventEmitter {
       const hosts = this.database.getHosts(record.key, publicContract)
       await this.addRequest('put', record.key, request, hosts)
 
-      this.on('put-request', async (message: IGenericMessage) => {
-        // validate the contract request
-        const request: IPutRequest = message.data
-        const record = this.database.loadPackedRecord(request.record)
-        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
-        const testRequest = await this.database.isValidPutRequest(record, contract, request)
-        if (!testRequest.valid)  {
-          this.sendPutResponse(message.sender, false, testRequest.reason, record.key)
-          return
-        }
-
-        // validate the record
-        const testValid = await record.isValid(message.sender)
-        if (!testValid.valid)  {
-          // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
-          this.sendPutResponse(message.sender, false, testValid.reason, record.key)
-          return
-        }
-
-        // store the record, create PoR, and send reply
-        await this.database.saveRecord(record, contract)
-        const proof = record.createPoR(this.wallet.profile.user.id)
-        this.sendPutResponse(message.sender, true, proof, record.key)
-      })
-
-      this.on('put-reply', async (message: IGenericMessage) => {
-        const response: IPutResponse = message.data
+      this.on('put-reply', async (response: IPutResponse, sender: string) => {
         if (!response.valid) {
           reject(new Error(response.reason))
         }
@@ -1500,27 +1612,28 @@ export default class Subspace extends EventEmitter {
 
         // validate PoR
         const record = await this.database.getRecord(response.key)
-        if (! record.isValidPoR(message.sender, response.reason))  {
+        if (! record.isValidPoR(sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
 
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('put', record.key)
-        this.removeRequest('put', record.key, message.sender)
+        this.removeRequest('put', record.key, sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-
-        // resolve on first valid response
-        if (pendingSize === hostLength) {
-          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
-          resolve(content.value)
-        }
 
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           this.rev(contract.id, this.wallet.contract.state)
           const hosts = this.resolveRequest('put', record.key)
           this.emit('put', record.key, hosts)
+          this.removeListener('put-reply', null)
+        }
+
+        // resolve on first valid response
+        if (pendingSize === hostLength) {
+          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
+          resolve(content.value)
         }
       })
     })
@@ -1534,23 +1647,7 @@ export default class Subspace extends EventEmitter {
       const request: IGetRequest = keyObject
       await this.addRequest('get', keyObject.recordId, request, hosts)
 
-      this.on('get-request', async (message: IGenericMessage) => {
-        const request: IGetRequest = message.data
-        // unpack key and validate request
-        const record = await this.database.getRecord(request.recordId)
-        const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor)
-        if (!testRequest.valid)  {
-          this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason)
-          return
-        }
-
-        // send the record and PoR back to client
-        const proof = record.createPoR(this.wallet.profile.user.id)
-        this.sendGetResponse(message.sender, true, request.recordId, proof, record)
-      })
-
-      this.on('get-reply', async (message: IGenericMessage) => {
-        const response: IGetResponse = message.data
+      this.on('get-reply', async (response: IGetResponse, sender: string) => {
         if (!response.valid) {
           reject(new Error(response.reason))
         }
@@ -1560,26 +1657,27 @@ export default class Subspace extends EventEmitter {
 
         // load/validate record and validate PoR
         const record = await this.database.loadPackedRecord(response.record)
-        if (! record.isValidPoR(message.sender, response.reason))  {
+        if (! record.isValidPoR(sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
 
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('get', record.key)
-        this.removeRequest('get', record.key, message.sender)
+        this.removeRequest('get', record.key, sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-
-        // resolve on first valid response
-        if (pendingSize === hostLength) {
-          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
-          resolve(content.value)
-        }
 
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           const hosts = this.resolveRequest('get', record.key)
           this.emit('get', record.key, hosts)
+          this.removeListener('get-reply', null)
+        }
+
+        // resolve on first valid response
+        if (pendingSize === hostLength) {
+          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
+          resolve(content.value)
         }
       })
     })
@@ -1614,38 +1712,9 @@ export default class Subspace extends EventEmitter {
       const hosts = this.database.getHosts(key, publicContract)
       await this.addRequest('rev', key, request, hosts)
 
-      this.on('rev-request', async (message: IGenericMessage) => {
-        // load the request and new record
-        const request: IRevRequest = message.data
-        const newRecord = this.database.loadPackedRecord(request.record)
-        const oldRecord = await this.database.getRecord(newRecord.key)
-        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
-        const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request)
-
-        if (!testRequest.valid)  {
-          this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key)
-          return
-        }
-
-        // validate the new record
-        const testValid = await newRecord.isValid(message.sender)
-        if (!testValid.valid)  {
-          this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key)
-          return
-        }
-
-        const sizeDelta = oldRecord.getSize() - newRecord.getSize()
-
-        // update the record, create PoR and send reply
-        await this.database.saveRecord(newRecord, contract, true, sizeDelta)
-        const proof = newRecord.createPoR(this.wallet.profile.user.id,)
-        await this.sendRevResponse(message.sender, true, proof, newRecord.key)
-      })
-
-      this.on('rev-reply', async (message: IGenericMessage) => {
-        const response: IRevResponse = message.data
+      this.on('rev-reply', async (response: IRevResponse, sender: string) => {
         if (!response.valid) {
-          reject(new Error(message.data.data))
+          reject(new Error(response.reason))
         }
 
         const profile = this.wallet.getProfile()
@@ -1653,27 +1722,28 @@ export default class Subspace extends EventEmitter {
 
         // validate PoR
         const record = await this.database.getRecord(response.key)
-        if (! record.isValidPoR(message.sender, response.reason))  {
+        if (! record.isValidPoR(sender, response.reason))  {
           reject(new Error('Host returned invalid proof of replication'))
         }
 
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('rev', record.key)
-        this.removeRequest('rev', record.key, message.sender)
+        this.removeRequest('rev', record.key, sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-
-        // resolve on first valid response
-        if (pendingSize === hostLength) {
-          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
-          resolve(content)
-        }
 
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
           this.rev(contract.id, this.wallet.contract.state)
           const hosts = this.resolveRequest('rev', record.key)
           this.emit('rev', record.key, hosts)
+          this.removeListener('rev-reply', null)
+        }
+
+        // resolve on first valid response
+        if (pendingSize === hostLength) {
+          const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject)
+          resolve(content)
         }
       })
     })
@@ -1698,26 +1768,7 @@ export default class Subspace extends EventEmitter {
       request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject)
       await this.addRequest('del', keyObject.recordId, request, hosts)
 
-      this.on('del-request', async (message: IGenericMessage) => {
-        // unpack key and validate request
-        const request: IDelRequest = message.data
-        const record = await this.database.getRecord(request.recordId)
-        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))))
-
-        const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request)
-        if (!testRequest.valid)  {
-          this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId)
-          return
-        }
-
-        // delete the record send PoD back to client
-        await this.database.delRecord(record, request.shardId)
-        const proof = record.createPoD(this.wallet.profile.user.id)
-        await this.sendDelResponse(message.sender, true, proof, record.key)
-      })
-
-      this.on('del-reply', async (message: IGenericMessage) => {
-        const response: IDelResponse = message.data
+      this.on('del-reply', async (response: IDelResponse, sender: string) => {
         if (!response.valid) {
           reject(new Error(response.reason))
         }
@@ -1726,20 +1777,15 @@ export default class Subspace extends EventEmitter {
         const record = await this.database.getRecord(response.key)
 
         // load/validate record and validate PoD
-        if (! record.isValidPoD(message.sender, response.reason))  {
+        if (! record.isValidPoD(sender, response.reason))  {
           reject(new Error('Host returned invalid proof of deletion'))
         }
 
         // remove from pending requests and get size
         const pendingSize = this.getRequestSize('del', record.key)
-        this.removeRequest('del', record.key, message.sender)
+        this.removeRequest('del', record.key, sender)
         const shardMap = this.database.getShardAndHostsForKey(record.key, contract)
         const hostLength = shardMap.hosts.length
-
-        // resolve on first valid response
-        if (pendingSize === hostLength) {
-          resolve()
-        }
 
         // emit event and adjust contract when fully resolved
         if (pendingSize === 1) {
@@ -1748,6 +1794,12 @@ export default class Subspace extends EventEmitter {
           this.rev(contract.id, this.wallet.contract.state)
           const hosts = this.resolveRequest('del', record.key)
           this.emit('del', record.key, hosts)
+          this.removeListener('del-reply', null)
+        }
+
+        // resolve on first valid response
+        if (pendingSize === hostLength) {
+          resolve()
         }
       })
     })
@@ -2113,15 +2165,22 @@ export default class Subspace extends EventEmitter {
       const requestMessage = await this.network.createGenericMessage('neighbor-request', request)
       await this.send(nodeId, requestMessage)
 
-      this.on('neighbor-reply', (response: INeighborResponse, sender: string) => {
+
+      // send a connect request to each valid neighbor
+
+
+      this.once('neighbor-reply', (response: INeighborResponse, sender: string) => {
         // check if request accpeted
         if (!response.valid) {
           reject(new Error(response.reason))
         }
 
+        // check if we already received this neighbor reply 
+
         // update my neighbors
         this.neighbors.add(sender)
         this.neighborProofs.set(sender, JSON.parse(JSON.stringify(response.proof)))
+        console.log('Added neighbor proof')
         resolve()
       })
     })
@@ -2146,7 +2205,8 @@ export default class Subspace extends EventEmitter {
     console.log('Connecting to', this.neighbors.size, 'closest hosts, out of', activeHosts.length, 'active hosts.\n',  this.neighbors)
 
     for (const nodeId of this.neighbors) {
-      promises.push(this.connectToNeighbor(nodeId))
+      console.log('connecting to neighbor')
+      await this.connectToNeighbor(nodeId)
     }
 
     // get all of my assigned shards, an expensive, (hopefully) one-time operation
@@ -2157,12 +2217,13 @@ export default class Subspace extends EventEmitter {
         const hosts = this.database.computeHostsforShards([shardId], contract.replicationFactor)[0].hosts
         if (hosts.includes(profile.id)) {
           const furthestHost = hosts[hosts.length - 1]
-          promises.push(this.requestShard(furthestHost, shardId, recordId))
+          await this.requestShard(furthestHost, shardId, recordId)
         }
       }
     }
 
     await Promise.all(promises)
+    console.log('connected to all neighbors')
 
     // compile signatures, create and gossip the join messsage
     const signatures = [...this.neighborProofs.values()]

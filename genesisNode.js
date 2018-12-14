@@ -35,7 +35,7 @@ const init = async () => {
     
     console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
-    await subspace.seedPlot()
+    await subspace.seedPlot(100000000000)
     console.log('seeded plot')
 
     await subspace.join(8125, '127.0.0.1')
@@ -43,6 +43,20 @@ const init = async () => {
 
     await subspace.startFarmer(10000)
     console.log('Bootstrapped the ledger and started farming')
+    
+
+    setTimeout( async () => {
+      await subspace.reserveSpace(1000000000, 3600000, 2)
+      console.log('reserved space')
+
+      subspace.on('space-reserved', (recordId, hosts) => {
+        console.log('\nReserved Space! \n')
+        console.log('Contract id', recordId)
+        console.log('Hosts', hosts)
+      })
+    }, 120000)
+
+    
 
     // start interval
 

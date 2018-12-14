@@ -68,7 +68,7 @@ export default class Subspace extends EventEmitter {
     pledgeSpace(interval?: number): Promise<Record>;
     private setPaymentTimer;
     private requestHostPayment;
-    reserveSpace(name?: string, email?: string, passphrase?: string, spaceReserved?: number, ttl?: number, replicationFactor?: number): Promise<void>;
+    reserveSpace(spaceReserved?: number, ttl?: number, replicationFactor?: number, name?: string, email?: string, passphrase?: string): Promise<void>;
     createMutableContract(name?: string, email?: string, passphrase?: string, spaceReserved?: number, ttl?: number, replicationFactor?: number): Promise<{
         txRecord: Record;
         contractRecord: Record;

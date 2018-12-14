@@ -29,7 +29,7 @@ const init = async () => {
     await subspace.init('gateway', true, 'gw1')   
     console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
-    await subspace.seedPlot()
+    await subspace.seedPlot(100000000000)
     console.log('seeded plot')
 
     await subspace.join(8126, '127.0.0.1')
