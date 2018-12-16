@@ -11,7 +11,8 @@
     "@subspace/network": "github:subspace/network",
     "@subspace/storage": "github:subspace/storage",
     "@subspace/tracker": "github:subspace/tracker",
-    "@subspace/wallet": "github:subspace/wallet"
+    "@subspace/wallet": "github:subspace/wallet",
+    "random-bytes-numbers": "^1.0.0"
   },
   "devDependencies": {
     "@types/jest": "^23.3.10",

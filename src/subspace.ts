@@ -29,6 +29,7 @@ import {
 } from './interfaces'
 import {Message} from "./Message";
 import {ArrayMap} from "array-map-set";
+import {random} from 'random-bytes-numbers';
 
 const DEFAULT_PROFILE_NAME = 'name'
 const DEFAULT_PROFILE_EMAIL = 'name@name.com'
@@ -98,6 +99,13 @@ const MESSAGE_TYPES = {
 
   'peer-added': 33,
   'peer-removed': 33,
+}
+
+/**
+ * Generates exponentially distributed numbers that can be used for intervals between arrivals in Poisson process
+ */
+function sample(mean: number): number {
+  return -Math.log(random()) * mean
 }
 
 export default class Subspace extends EventEmitter {
@@ -364,7 +372,7 @@ export default class Subspace extends EventEmitter {
             // a valid neighbor has failed
             console.log('A valid neighbor has failed')
             this.failedNeighbors.set(nodeIdString, false)
-            const timeout = Math.random() * 10
+            const timeout = sample(10)
             console.log('Failure timeout is', timeout)
             setTimeout(async () => {
               // later attempt to ping the node
