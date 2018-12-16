@@ -1,7 +1,7 @@
 const Subspace = require('./dist/subspace')
 
 const init = async () => {
-  
+
   try {
     const subspace = new Subspace.default(false, ['772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125'], 1)
 
@@ -16,19 +16,19 @@ const init = async () => {
     subspace.on('join', () => {
       console.log('Joined the Network')
     })
-    
+
     subspace.on('applied-block', block => {
       console.log('Applied block: ', block.key)
       // console.log(subspace.ledger.clearedBalances)
     })
 
-    await subspace.init('gateway', true, 'gw3')   
+    await subspace.init('gateway', true, 'gw3')
     console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
     await subspace.seedPlot()
     console.log('seeded plot')
 
-    await subspace.join(8128, '127.0.0.1')
+    await subspace.join(8128, '127.0.0.1', 8228)
     console.log('joined the network')
 
     await subspace.startFarmer(10000)
@@ -59,19 +59,19 @@ const init = async () => {
     // await subspace.leave()
     // console.log('left the network')
 
-    
 
 
-    
 
-    // join hosts 
+
+
+    // join hosts
 
     // await subspace.joinHosts()
     // console.log('joined hosts')
-   
+
     // setTimeout(async () => {
 
-    //   // leave hosts 
+    //   // leave hosts
 
     //   await subspace.leaveHosts()
     //   console.log('left host')
@@ -81,7 +81,7 @@ const init = async () => {
 
     //   await subspace.network.leave()
     //   console.log('left')
-    // }, 60000)  
+    // }, 60000)
 
   }
   catch (error) {

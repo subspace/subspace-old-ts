@@ -1,7 +1,7 @@
 const Subspace = require('./dist/subspace')
 
 const init = async () => {
-  
+
   try {
 
     // set my ip address in the constructor
@@ -31,14 +31,14 @@ const init = async () => {
       // console.log(subspace.ledger.clearedBalances)
     })
 
-    await subspace.init('gateway', true)   
-    
+    await subspace.init('gateway', true)
+
     console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
     await subspace.seedPlot()
     console.log('seeded plot')
 
-    await subspace.join(8125, '127.0.0.1')
+    await subspace.join(8125, '127.0.0.1', 8225)
     console.log('Bootstrapped the network')
 
     await subspace.startFarmer(10000)
@@ -48,9 +48,9 @@ const init = async () => {
 
     // create block and gossip
 
-    // create tx and gossip 
+    // create tx and gossip
 
-    // apply block 
+    // apply block
 
     // setTimeout(() => {
     //   console.log('sending test credits')
@@ -60,20 +60,20 @@ const init = async () => {
     // send credits test
 
     // after timeout, send credits to another host
-    // then show balances 
+    // then show balances
 
-    // join hosts 
+    // join hosts
 
     setTimeout( async () => {
       await subspace.joinHosts(0)
       console.log('Bootstrapped the tracker and joined hosts')
     }, 6000)
 
-    
-   
+
+
     // setTimeout(async () => {
 
-    //   // leave hosts 
+    //   // leave hosts
 
     //   await subspace.leaveHosts()
     //   console.log('left host')
@@ -83,7 +83,7 @@ const init = async () => {
 
     //   await subspace.network.leave()
     //   console.log('left')
-    // }, 60000)  
+    // }, 60000)
 
   }
   catch (error) {
