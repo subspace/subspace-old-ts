@@ -955,7 +955,7 @@ export default class Subspace extends EventEmitter {
 
         for (const gateway of gateways) {
           const nodeId = Buffer.from(gateway.nodeId, 'hex')
-          await this.connectToGateway(nodeId, gateway.publicIp, gateway.tcpPort)
+          await this.connectToGateway(nodeId, gateway.publicIp, gateway.tcpPort, gateway.wsPort)
           --count
 
           if (!count) {
@@ -967,8 +967,8 @@ export default class Subspace extends EventEmitter {
       }
   }
 
-  private async connectToGateway(nodeId: Uint8Array, publicIp: string, tcpPort: number) {
-    await this.network.connectTo(nodeId, publicIp, tcpPort)
+  private async connectToGateway(nodeId: Uint8Array, publicIp: string, tcpPort: number, wsPort: number) {
+    await this.network.connectTo(nodeId, publicIp, tcpPort, wsPort)
     const joinRequestMessage = await this.createJoinMessage()
     this.send(
       nodeId,
@@ -1034,7 +1034,7 @@ export default class Subspace extends EventEmitter {
 
     for (const gateway of this.network.gatewayNodes) {
       if(!peers.map(peer => Buffer.from(peer).toString('hex')).includes(gateway.nodeId) && gateway.nodeId !== this.wallet.profile.user.id) {
-        await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
+        await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, gateway.wsPort)
         const connectedGatewayCount = this.network.getGateways().length
         if (connectedGatewayCount === this.gatewayCount) {
           return
@@ -1099,14 +1099,14 @@ export default class Subspace extends EventEmitter {
     // if known gateway then connect over public ip
     else if (this.network.isGatewayNode(nodeIdString)) {
       const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0]
-      await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
+      await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, gateway.wsPort)
     }
 
     // else check if in the tracker
     else if (this.tracker.hasEntry(nodeIdString)) {
       const host = this.tracker.getEntry(nodeIdString)
       if (host.status && host.isGateway) {
-        await this.connectToGateway(nodeId, host.publicIp, host.tcpPort)
+        await this.connectToGateway(nodeId, host.publicIp, host.tcpPort, host.wsPort)
       } else if (host.status) {
         // TODO: `validHosts` shouldn't be `[]`, fix this
         const neighbors = this.tracker.getHostNeighbors(nodeIdString, [])
@@ -1118,7 +1118,7 @@ export default class Subspace extends EventEmitter {
           // may want to find closest to you or closest to host by distance
           for (let neighborId in public_neighbors) {
             const neighbor = this.tracker.getEntry(neighborId)
-            await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort)
+            await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, host.wsPort)
             // relay signalling info here
             // connect over tcp or wrtc
             return
@@ -2105,7 +2105,7 @@ export default class Subspace extends EventEmitter {
       const gateway = this.network.getGateway(nodeId)
       const connectedGateways = this.network.getConnectedGateways()
       if (gateway && !connectedGateways.includes(gateway.nodeId)) {
-        await this.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort)
+        await this.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, gateway.wsPort)
       }
 
       const pledgeTxId = this.wallet.profile.pledge.pledgeTx
