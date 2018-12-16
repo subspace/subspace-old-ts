@@ -15,17 +15,22 @@
   },
   "devDependencies": {
     "@types/jest": "^23.3.10",
-    "@types/node": "^10.12.12",
+    "@types/node": "^10.12.15",
     "@types/ws": "^6.0.1",
+    "browserify": "^16.2.3",
     "jest": "^23.5.0",
     "tape": "^4.9.1",
     "ts-jest": "^23.10.5",
     "ts-node": "^7.0.1",
-    "typescript": "^3.2.2"
+    "typescript": "^3.2.2",
+    "uglify-es": "^3.3.9"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "rm -rf dist/* && tsc -b",
+    "build-browser": "npm run browser-bundle && npm run browser-minify",
+    "browser-bundle": "browserify --standalone Subspace dist/subspace.js > dist/subspace.browser.js",
+    "browser-minify": "node_modules/uglify-es/bin/uglifyjs --compress --mangle -- dist/subspace.browser.js > dist/subspace.browser.min.js",
     "watch": "tsc -w"
   },
   "author": "subspace-labs",
