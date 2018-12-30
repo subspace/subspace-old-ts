@@ -4,7 +4,7 @@
         if (v !== undefined) module.exports = v;
     }
     else if (typeof define === "function" && define.amd) {
-        define(["require", "exports", "events", "@subspace/crypto", "@subspace/wallet", "@subspace/storage", "@subspace/network", "@subspace/tracker", "@subspace/ledger", "@subspace/database", "./Message", "array-map-set"], factory);
+        define(["require", "exports", "events", "@subspace/crypto", "@subspace/wallet", "@subspace/storage", "@subspace/network", "@subspace/tracker", "@subspace/ledger", "@subspace/database", "./Message", "array-map-set", "random-bytes-numbers"], factory);
     }
 })(function (require, exports) {
     "use strict";
@@ -19,6 +19,7 @@
     const database_1 = require("@subspace/database");
     const Message_1 = require("./Message");
     const array_map_set_1 = require("array-map-set");
+    const random_bytes_numbers_1 = require("random-bytes-numbers");
     const DEFAULT_PROFILE_NAME = 'name';
     const DEFAULT_PROFILE_EMAIL = 'name@name.com';
     const DEFAULT_PROFILE_PASSPHRASE = 'passphrase';
@@ -70,6 +71,12 @@
         'peer-added': 33,
         'peer-removed': 33,
     };
+    /**
+     * Generates exponentially distributed numbers that can be used for intervals between arrivals in Poisson process
+     */
+    function sample(mean) {
+        return -Math.log(random_bytes_numbers_1.random()) * mean;
+    }
     class Subspace extends EventEmitter {
         constructor(bootstrap = false, gatewayNodes = DEFAULT_GATEWAY_NODES, gatewayCount = DEFAULT_GATEWAY_COUNT, delegated = false, name = DEFAULT_PROFILE_NAME, email = DEFAULT_PROFILE_EMAIL, passphrase = DEFAULT_CONTRACT_PASSPHRASE, spacePledged = null, interval = null) {
             super();
@@ -231,7 +238,7 @@
             // database
             this.database = new database_1.DataBase(this.wallet, this.storage);
             // network
-            this.network = new network_1.default(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.env);
+            this.network = await network_1.default.create(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.env);
             // prune messages every 10 minutes
             this.startMessagePruner();
             this.network.on('connection', (nodeId) => {
@@ -254,7 +261,7 @@
                 // at each neighbor (response)
                 // each neighbor will validate that the host has failed
                 // if valid they will reply with a signature referencing the nonce
-                // at initating neighbor
+                // at initiating neighbor
                 // for each neighbor-reply, validate the reply
                 // once 2/3 of neighbors have replied, compile the host-failure and gossip
                 // complete local failure procedures
@@ -263,7 +270,7 @@
                 // at each host on the network
                 // receive and validate the host-failure message
                 // complete local failure procedures
-                // respond to disconnection and send failure-request meesage to each neighbor of failed host
+                // respond to disconnection and send failure-request message to each neighbor of failed host
                 // each node will send a failure reply message
                 // collect failure reply messages until you have 2/3
                 // gossip host-failure message
@@ -277,7 +284,7 @@
                             // a valid neighbor has failed
                             console.log('A valid neighbor has failed');
                             this.failedNeighbors.set(nodeIdString, false);
-                            const timeout = Math.random() * 10;
+                            const timeout = sample(10);
                             console.log('Failure timeout is', timeout);
                             setTimeout(async () => {
                                 // later attempt to ping the node
@@ -292,9 +299,9 @@
                                     const neighbors = new Set([...this.tracker.getHostNeighbors(nodeIdString, hosts)]);
                                     neighbors.delete(profile.id);
                                     console.log('Got failed host neighbors', neighbors);
-                                    // create the failure message with my singature object
+                                    // create the failure message with my signature object
                                     const failureMessage = await this.tracker.createFailureMessage(nodeIdString);
-                                    // track the failure, inlcuding my singature object
+                                    // track the failure, including my signature object
                                     const pendingFailure = {
                                         neighbors,
                                         nonce: failureMessage.data.nonce,
@@ -920,7 +927,7 @@
                         // may want to find closest to you or closest to host by distance
                         for (let neighborId in public_neighbors) {
                             const neighbor = this.tracker.getEntry(neighborId);
-                            await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, host.wsPort);
+                            await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, neighbor.wsPort);
                             // relay signalling info here
                             // connect over tcp or wrtc
                             return;
