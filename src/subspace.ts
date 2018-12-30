@@ -307,7 +307,7 @@ export default class Subspace extends EventEmitter {
     this.database = new DataBase(this.wallet, this.storage)
 
     // network
-    this.network = new Network(
+    this.network = await Network.create(
       this.bootstrap,
       this.gatewayNodes,
       this.gatewayCount,
@@ -342,7 +342,7 @@ export default class Subspace extends EventEmitter {
           // each neighbor will validate that the host has failed
           // if valid they will reply with a signature referencing the nonce
 
-        // at initating neighbor
+        // at initiating neighbor
           // for each neighbor-reply, validate the reply
           // once 2/3 of neighbors have replied, compile the host-failure and gossip
           // complete local failure procedures
@@ -355,7 +355,7 @@ export default class Subspace extends EventEmitter {
 
 
 
-        // respond to disconnection and send failure-request meesage to each neighbor of failed host
+        // respond to disconnection and send failure-request message to each neighbor of failed host
         // each node will send a failure reply message
         // collect failure reply messages until you have 2/3
 
@@ -390,10 +390,10 @@ export default class Subspace extends EventEmitter {
 
                 console.log('Got failed host neighbors', neighbors)
 
-                // create the failure message with my singature object
+                // create the failure message with my signature object
                 const failureMessage = await this.tracker.createFailureMessage(nodeIdString)
 
-                // track the failure, inlcuding my singature object
+                // track the failure, including my signature object
                 const pendingFailure: IPendingFailure = {
                   neighbors,
                   nonce: failureMessage.data.nonce,
@@ -1107,7 +1107,12 @@ export default class Subspace extends EventEmitter {
     // if known gateway then connect over public ip
     else if (this.network.isGatewayNode(nodeIdString)) {
       const gateway = this.network.gatewayNodes.filter(gateway => gateway.nodeId === nodeIdString)[0]
-      await this.connectToGateway(Buffer.from(gateway.nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, gateway.wsPort)
+      await this.connectToGateway(
+        Buffer.from(gateway.nodeId, 'hex'),
+        gateway.publicIp,
+        gateway.tcpPort,
+        gateway.wsPort
+      )
     }
 
     // else check if in the tracker
@@ -1126,7 +1131,12 @@ export default class Subspace extends EventEmitter {
           // may want to find closest to you or closest to host by distance
           for (let neighborId in public_neighbors) {
             const neighbor = this.tracker.getEntry(neighborId)
-            await this.connectToGateway(Buffer.from(neighborId, 'hex'), neighbor.publicIp, neighbor.tcpPort, host.wsPort)
+            await this.connectToGateway(
+              Buffer.from(neighborId, 'hex'),
+              neighbor.publicIp,
+              neighbor.tcpPort,
+              neighbor.wsPort
+            )
             // relay signalling info here
             // connect over tcp or wrtc
             return
@@ -2113,7 +2123,12 @@ export default class Subspace extends EventEmitter {
       const gateway = this.network.getGateway(nodeId)
       const connectedGateways = this.network.getConnectedGateways()
       if (gateway && !connectedGateways.includes(gateway.nodeId)) {
-        await this.connectToGateway(Buffer.from(nodeId, 'hex'), gateway.publicIp, gateway.tcpPort, gateway.wsPort)
+        await this.connectToGateway(
+          Buffer.from(nodeId, 'hex'),
+          gateway.publicIp,
+          gateway.tcpPort,
+          gateway.wsPort
+        )
       }
 
       const pledgeTxId = this.wallet.profile.pledge.pledgeTx
