@@ -5,13 +5,13 @@
   "main": "dist/subspace.js",
   "types": "dist/subspace.d.ts",
   "dependencies": {
-    "@subspace/crypto": "github:subspace/crypto",
-    "@subspace/database": "github:subspace/database",
-    "@subspace/ledger": "github:subspace/ledger",
-    "@subspace/network": "github:subspace/network",
-    "@subspace/storage": "github:subspace/storage",
-    "@subspace/tracker": "github:subspace/tracker",
-    "@subspace/wallet": "github:subspace/wallet",
+    "@subspace/crypto": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/crypto.git",
+    "@subspace/database": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/database.git",
+    "@subspace/ledger": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/ledger.git",
+    "@subspace/network": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/network.git",
+    "@subspace/storage": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/storage.git",
+    "@subspace/tracker": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/tracker.git",
+    "@subspace/wallet": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/wallet.git",
     "random-bytes-numbers": "^1.0.0"
   },
   "devDependencies": {
