@@ -864,7 +864,7 @@
                 }
             }
         }
-        async join(myTcpPort = 8124, myAddress, myWsPort) {
+        async join(myTcpPort = 8124, myAddress = 'localhost', myWsPort) {
             // join the subspace network as a node, connecting to some known gateway nodes
             // listen for new incoming connections
             if (this.env === 'gateway' || this.env === 'private-host') {

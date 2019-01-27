@@ -57,7 +57,7 @@ export default class Subspace extends EventEmitter {
     private createJoinMessage;
     private createMessage;
     connectToAllGateways(): Promise<void>;
-    join(myTcpPort: number, myAddress: 'localhost', myWsPort?: number): Promise<void>;
+    join(myTcpPort?: number, myAddress?: string, myWsPort?: number): Promise<void>;
     leave(): void;
     connect(nodeId: Uint8Array): Promise<Uint8Array>;
     disconnect(nodeId: Uint8Array): void;

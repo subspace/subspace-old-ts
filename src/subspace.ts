@@ -133,7 +133,7 @@ export default class Subspace extends EventEmitter {
   private trackerResponseCallbacks: Map<Uint8Array, {(message: IGenericMessage): void}> = ArrayMap()
 
   constructor(
-    public bootstrap = false,
+    public bootstrap: boolean = false,
     public gatewayNodes = DEFAULT_GATEWAY_NODES,
     public gatewayCount = DEFAULT_GATEWAY_COUNT,
     public delegated = false,
@@ -1051,7 +1051,7 @@ export default class Subspace extends EventEmitter {
     }
   }
 
-  public async join(myTcpPort = 8124, myAddress: 'localhost', myWsPort?: number): Promise<void> {
+  public async join(myTcpPort = 8124, myAddress: string = 'localhost', myWsPort?: number): Promise<void> {
       // join the subspace network as a node, connecting to some known gateway nodes
 
       // listen for new incoming connections
