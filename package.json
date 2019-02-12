@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/subspace.js",
+  "bin": {
+    "subspace": "bin/subspace.js"
+  },
   "types": "dist/subspace.d.ts",
   "dependencies": {
     "@subspace/crypto": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/crypto.git",
@@ -12,6 +15,7 @@
     "@subspace/storage": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/storage.git",
     "@subspace/tracker": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/tracker.git",
     "@subspace/wallet": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/wallet.git",
+    "commander": "^2.19.0",
     "random-bytes-numbers": "^1.0.0"
   },
   "devDependencies": {
@@ -27,8 +31,10 @@
     "uglify-es": "^3.3.9"
   },
   "scripts": {
+    "subspace": "bin/subspace.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "rm -rf dist/* && tsc -b",
+    "build": "npm run build-node && npm run build-browser",
+    "build-node": "rm -rf dist/* && tsc -b",
     "build-browser": "npm run browser-bundle && npm run browser-minify",
     "browser-bundle": "browserify --standalone Subspace dist/subspace.js > dist/subspace.browser.js",
     "browser-minify": "node_modules/uglify-es/bin/uglifyjs --compress --mangle -- dist/subspace.browser.js > dist/subspace.browser.min.js",
