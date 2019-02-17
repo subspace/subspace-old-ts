@@ -16,11 +16,9 @@ COPY package.json /code
 COPY package-lock.json /code
 COPY tsconfig.json /code
 
-RUN ["/bin/run", "apt-get update"]
-RUN ["/bin/run", "apt-get install -y --no-install-recommends git g++ make"]
-ENV JOBS=max
-RUN ["/bin/run", "npm ci"]
-RUN ["/bin/run", "npm run build"]
+COPY docker/build-ts.sh /build-ts.sh
+
+RUN ["/build-ts.sh"]
 
 # Build final image without build-time dependencies
 FROM ubuntu-with-node
