@@ -1,5 +1,5 @@
 # Build TypeScript with node:10 image
-FROM node:10
+FROM arm64v8/node:10
 
 WORKDIR /code
 
@@ -14,7 +14,7 @@ RUN \
     npm run build
 
 # Build final image on top of ubuntu:18.04 image that is a shared base with other images without build-time dependencies
-FROM subspacelabs/ubuntu
+FROM subspacelabs/ubuntu:arm64v8
 
 WORKDIR /code
 

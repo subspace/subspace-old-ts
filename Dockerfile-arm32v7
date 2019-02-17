@@ -14,23 +14,19 @@ RUN \
     npm run build
 
 # Build final image on top of ubuntu:18.04 image that is a shared base with other images without build-time dependencies
-FROM arm32v7/ubuntu:18.04
+FROM subspacelabs/ubuntu:arm32v7
 
 WORKDIR /code
 
-RUN \
-    apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg && \
-    curl -sL https://deb.nodesource.com/setup_10.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+COPY docker/build.sh /build.sh
+COPY docker/entrypoint.sh /entrypoint.sh
+
+RUN ["/build.sh"]
 
 COPY bin /code/bin
 COPY --from=0 /code/dist /code/dist
-COPY docker /code/docker
 COPY --from=0 /code/node_modules /code/node_modules
 COPY package.json /code
 COPY package-lock.json /code
 
-ENTRYPOINT ["/code/docker/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
