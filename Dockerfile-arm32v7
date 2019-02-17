@@ -1,7 +1,14 @@
-# Build TypeScript with node:10 image
-FROM arm32v7/node:10
+# Common image for build step and final image
+FROM subspacelabs/ubuntu:arm32v7 as ubuntu-with-node
 
 WORKDIR /code
+
+COPY docker/build.sh /build.sh
+
+RUN ["/build.sh"]
+
+# Install dependencies, build TypeScript
+FROM ubuntu-with-node as build
 
 COPY src /code/src
 COPY types /code/types
@@ -9,23 +16,20 @@ COPY package.json /code
 COPY package-lock.json /code
 COPY tsconfig.json /code
 
-RUN \
-    JOBS=max npm ci && \
-    npm run build
+RUN ["/bin/run", "apt-get update"]
+RUN ["/bin/run", "apt-get install -y --no-install-recommends git g++ make"]
+ENV JOBS=max
+RUN ["/bin/run", "npm ci"]
+RUN ["/bin/run", "npm run build"]
 
-# Build final image on top of ubuntu:18.04 image that is a shared base with other images without build-time dependencies
-FROM subspacelabs/ubuntu:arm32v7
+# Build final image without build-time dependencies
+FROM ubuntu-with-node
 
-WORKDIR /code
-
-COPY docker/build.sh /build.sh
 COPY docker/entrypoint.sh /entrypoint.sh
 
-RUN ["/build.sh"]
-
 COPY bin /code/bin
-COPY --from=0 /code/dist /code/dist
-COPY --from=0 /code/node_modules /code/node_modules
+COPY --from=build /code/dist /code/dist
+COPY --from=build /code/node_modules /code/node_modules
 COPY package.json /code
 COPY package-lock.json /code
 
