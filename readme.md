@@ -22,7 +22,7 @@ If you want to push new image to Subspace's Docker Hub organization afterwards:
 docker push subspacelabs/subspace
 ```
 
-### Building Docker image for Raspberry PI (32-bit ARMv7)
+### Building Docker image for 32-bit ARMv7
 In order to get source code and build an image run:
 ```bash
 git clone git@github.com:subspace/subspace.git
