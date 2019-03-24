@@ -362,7 +362,7 @@
                 }
             });
             // database
-            this.database = new database_1.DataBase(this.wallet, this.storage);
+            this.database = new database_1.DataBase(this.wallet, this.storage, this.tracker);
             // network
             this.network = await network_1.default.create(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.env);
             // prune messages every 10 minutes
@@ -990,7 +990,7 @@
                 }
             }
         }
-        async join(myTcpPort = 8124, myAddress, myWsPort) {
+        async join(myTcpPort = 8124, myAddress = 'localhost', myWsPort) {
             // join the subspace network as a node, connecting to some known gateway nodes
             // listen for new incoming connections
             if (this.env === 'gateway' || this.env === 'private-host') {
@@ -1310,263 +1310,283 @@
         // core database methods
         put(content, encrypted) {
             return new Promise(async (resolve, reject) => {
-                // create the record, get hosts, and send requests
-                const privateContract = this.wallet.getPrivateContract();
-                const publicContract = this.wallet.getPublicContract();
-                const record = await this.database.createRecord(content, encrypted);
-                this.wallet.contract.addRecord(record.key, record.getSize());
-                // create a put request signed by contract key
-                const request = {
-                    record: record.getRecord(),
-                    contractKey: privateContract.publicKey,
-                    timestamp: Date.now(),
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
-                const hosts = this.database.getHosts(record.key, publicContract);
-                await this.addRequest('put', record.key, request, hosts);
-                this.on('put-request', async (message) => {
-                    // validate the contract request
-                    const request = message.data;
-                    const record = this.database.loadPackedRecord(request.record);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidPutRequest(record, contract, request);
-                    if (!testRequest.valid) {
-                        this.sendPutResponse(message.sender, false, testRequest.reason, record.key);
-                        return;
-                    }
-                    // validate the record
-                    const testValid = await record.isValid(message.sender);
-                    if (!testValid.valid) {
-                        // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
-                        this.sendPutResponse(message.sender, false, testValid.reason, record.key);
-                        return;
-                    }
-                    // store the record, create PoR, and send reply
-                    await this.database.saveRecord(record, contract);
-                    const proof = record.createPoR(this.wallet.profile.user.id);
-                    this.sendPutResponse(message.sender, true, proof, record.key);
-                });
-                this.on('put-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // validate PoR
-                    const record = await this.database.getRecord(response.key);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('put', record.key);
-                    this.removeRequest('put', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content.value);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('put', record.key);
-                        this.emit('put', record.key, hosts);
-                    }
-                });
+                try {
+                    // create the record, get hosts, and send requests
+                    const privateContract = this.wallet.getPrivateContract();
+                    const publicContract = this.wallet.getPublicContract();
+                    const record = await this.database.createRecord(content, encrypted);
+                    this.wallet.contract.addRecord(record.key, record.getSize());
+                    // create a put request signed by contract key
+                    const request = {
+                        record: record.getRecord(),
+                        contractKey: privateContract.publicKey,
+                        timestamp: Date.now(),
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
+                    const hosts = this.database.getHosts(record.key, publicContract);
+                    await this.addRequest('put', record.key, request, hosts);
+                    this.on('put-request', async (message) => {
+                        // validate the contract request
+                        const request = message.data;
+                        const record = this.database.loadPackedRecord(request.record);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidPutRequest(record, contract, request);
+                        if (!testRequest.valid) {
+                            this.sendPutResponse(message.sender, false, testRequest.reason, record.key);
+                            return;
+                        }
+                        // validate the record
+                        const testValid = await record.isValid(message.sender);
+                        if (!testValid.valid) {
+                            // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
+                            this.sendPutResponse(message.sender, false, testValid.reason, record.key);
+                            return;
+                        }
+                        // store the record, create PoR, and send reply
+                        await this.database.saveRecord(record, contract);
+                        const proof = record.createPoR(this.wallet.profile.user.id);
+                        this.sendPutResponse(message.sender, true, proof, record.key);
+                    });
+                    this.on('put-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // validate PoR
+                        const record = await this.database.getRecord(response.key);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('put', record.key);
+                        this.removeRequest('put', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content.key);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('put', record.key);
+                            this.emit('put', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         get(key) {
             return new Promise(async (resolve, reject) => {
-                // get hosts and send requests
-                const keyObject = this.database.parseRecordKey(key);
-                const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
-                const request = keyObject;
-                await this.addRequest('get', keyObject.recordId, request, hosts);
-                this.on('get-request', async (message) => {
-                    const request = message.data;
-                    // unpack key and validate request
-                    const record = await this.database.getRecord(request.recordId);
-                    const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor);
-                    if (!testRequest.valid) {
-                        this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason);
-                        return;
-                    }
-                    // send the record and PoR back to client
-                    const proof = record.createPoR(this.wallet.profile.user.id);
-                    this.sendGetResponse(message.sender, true, request.recordId, proof, record);
-                });
-                this.on('get-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // load/validate record and validate PoR
-                    const record = await this.database.loadPackedRecord(response.record);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('get', record.key);
-                    this.removeRequest('get', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content.value);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        const hosts = this.resolveRequest('get', record.key);
-                        this.emit('get', record.key, hosts);
-                    }
-                });
+                try {
+                    // get hosts and send requests
+                    const keyObject = this.database.parseRecordKey(key);
+                    const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
+                    const request = keyObject;
+                    await this.addRequest('get', keyObject.recordId, request, hosts);
+                    this.on('get-request', async (message) => {
+                        const request = message.data;
+                        // unpack key and validate request
+                        const record = await this.database.getRecord(request.recordId);
+                        const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor);
+                        if (!testRequest.valid) {
+                            this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason);
+                            return;
+                        }
+                        // send the record and PoR back to client
+                        const proof = record.createPoR(this.wallet.profile.user.id);
+                        this.sendGetResponse(message.sender, true, request.recordId, proof, record);
+                    });
+                    this.on('get-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // load/validate record and validate PoR
+                        const record = await this.database.loadPackedRecord(response.record);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('get', record.key);
+                        this.removeRequest('get', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content.value);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            const hosts = this.resolveRequest('get', record.key);
+                            this.emit('get', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         rev(key, update) {
             return new Promise(async (resolve, reject) => {
-                const keyObject = this.database.parseRecordKey(key);
-                const publicContract = this.wallet.getPublicContract();
-                const privateContract = this.wallet.getPrivateContract();
-                // get the old record and update
-                const oldRecord = await this.database.getRecord(keyObject.recordId);
-                if (oldRecord.value.immutable) {
-                    reject(new Error('Cannot update an immutable record'));
-                }
-                const newRecord = await this.database.revRecord(key, update);
-                const sizeDelta = oldRecord.getSize() - newRecord.getSize();
-                this.wallet.contract.updateRecord(key, sizeDelta);
-                // create a rev request signed by contract key
-                const request = {
-                    record: newRecord.getRecord(),
-                    contractKey: privateContract.publicKey,
-                    shardId: keyObject.shardId,
-                    timestamp: Date.now(),
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
-                // get hosts and send update requests
-                const hosts = this.database.getHosts(key, publicContract);
-                await this.addRequest('rev', key, request, hosts);
-                this.on('rev-request', async (message) => {
-                    // load the request and new record
-                    const request = message.data;
-                    const newRecord = this.database.loadPackedRecord(request.record);
-                    const oldRecord = await this.database.getRecord(newRecord.key);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request);
-                    if (!testRequest.valid) {
-                        this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key);
-                        return;
+                try {
+                    const keyObject = this.database.parseRecordKey(key);
+                    const publicContract = this.wallet.getPublicContract();
+                    const privateContract = this.wallet.getPrivateContract();
+                    // get the old record and update
+                    const oldRecord = await this.database.getRecord(keyObject.recordId);
+                    if (oldRecord.value.immutable) {
+                        reject(new Error('Cannot update an immutable record'));
                     }
-                    // validate the new record
-                    const testValid = await newRecord.isValid(message.sender);
-                    if (!testValid.valid) {
-                        this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key);
-                        return;
-                    }
+                    const newRecord = await this.database.revRecord(key, update);
                     const sizeDelta = oldRecord.getSize() - newRecord.getSize();
-                    // update the record, create PoR and send reply
-                    await this.database.saveRecord(newRecord, contract, true, sizeDelta);
-                    const proof = newRecord.createPoR(this.wallet.profile.user.id);
-                    await this.sendRevResponse(message.sender, true, proof, newRecord.key);
-                });
-                this.on('rev-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(message.data.data));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // validate PoR
-                    const record = await this.database.getRecord(response.key);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('rev', record.key);
-                    this.removeRequest('rev', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('rev', record.key);
-                        this.emit('rev', record.key, hosts);
-                    }
-                });
+                    this.wallet.contract.updateRecord(key, sizeDelta);
+                    // create a rev request signed by contract key
+                    const request = {
+                        record: newRecord.getRecord(),
+                        contractKey: privateContract.publicKey,
+                        shardId: keyObject.shardId,
+                        timestamp: Date.now(),
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
+                    // get hosts and send update requests
+                    const hosts = this.database.getHosts(key, publicContract);
+                    await this.addRequest('rev', key, request, hosts);
+                    this.on('rev-request', async (message) => {
+                        // load the request and new record
+                        const request = message.data;
+                        const newRecord = this.database.loadPackedRecord(request.record);
+                        const oldRecord = await this.database.getRecord(newRecord.key);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request);
+                        if (!testRequest.valid) {
+                            this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key);
+                            return;
+                        }
+                        // validate the new record
+                        const testValid = await newRecord.isValid(message.sender);
+                        if (!testValid.valid) {
+                            this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key);
+                            return;
+                        }
+                        const sizeDelta = oldRecord.getSize() - newRecord.getSize();
+                        // update the record, create PoR and send reply
+                        await this.database.saveRecord(newRecord, contract, true, sizeDelta);
+                        const proof = newRecord.createPoR(this.wallet.profile.user.id);
+                        await this.sendRevResponse(message.sender, true, proof, newRecord.key);
+                    });
+                    this.on('rev-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(message.data.data));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // validate PoR
+                        const record = await this.database.getRecord(response.key);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('rev', record.key);
+                        this.removeRequest('rev', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('rev', record.key);
+                            this.emit('rev', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         del(key) {
             return new Promise(async (resolve, reject) => {
-                // get hosts and send requests
-                const keyObject = this.database.parseRecordKey(key);
-                const contract = this.wallet.getPrivateContract();
-                const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
-                // create a del request signed by contract key
-                const request = {
-                    shardId: keyObject.shardId,
-                    recordId: keyObject.recordId,
-                    replicationFactor: keyObject.replicationFactor,
-                    contractKey: contract.publicKey,
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject);
-                await this.addRequest('del', keyObject.recordId, request, hosts);
-                this.on('del-request', async (message) => {
-                    // unpack key and validate request
-                    const request = message.data;
-                    const record = await this.database.getRecord(request.recordId);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request);
-                    if (!testRequest.valid) {
-                        this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId);
-                        return;
-                    }
-                    // delete the record send PoD back to client
-                    await this.database.delRecord(record, request.shardId);
-                    const proof = record.createPoD(this.wallet.profile.user.id);
-                    await this.sendDelResponse(message.sender, true, proof, record.key);
-                });
-                this.on('del-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const contract = this.wallet.getPublicContract();
-                    const record = await this.database.getRecord(response.key);
-                    // load/validate record and validate PoD
-                    if (!record.isValidPoD(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of deletion'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('del', record.key);
-                    this.removeRequest('del', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        resolve();
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        await this.storage.del(record.key);
-                        await this.wallet.contract.removeRecord(key, record.getSize());
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('del', record.key);
-                        this.emit('del', record.key, hosts);
-                    }
-                });
+                try {
+                    // get hosts and send requests
+                    const keyObject = this.database.parseRecordKey(key);
+                    const contract = this.wallet.getPrivateContract();
+                    const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
+                    // create a del request signed by contract key
+                    const request = {
+                        shardId: keyObject.shardId,
+                        recordId: keyObject.recordId,
+                        replicationFactor: keyObject.replicationFactor,
+                        contractKey: contract.publicKey,
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject);
+                    await this.addRequest('del', keyObject.recordId, request, hosts);
+                    this.on('del-request', async (message) => {
+                        // unpack key and validate request
+                        const request = message.data;
+                        const record = await this.database.getRecord(request.recordId);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request);
+                        if (!testRequest.valid) {
+                            this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId);
+                            return;
+                        }
+                        // delete the record send PoD back to client
+                        await this.database.delRecord(record, request.shardId);
+                        const proof = record.createPoD(this.wallet.profile.user.id);
+                        await this.sendDelResponse(message.sender, true, proof, record.key);
+                    });
+                    this.on('del-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const contract = this.wallet.getPublicContract();
+                        const record = await this.database.getRecord(response.key);
+                        // load/validate record and validate PoD
+                        if (!record.isValidPoD(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of deletion'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('del', record.key);
+                        this.removeRequest('del', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            resolve();
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            await this.storage.del(record.key);
+                            await this.wallet.contract.removeRecord(key, record.getSize());
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('del', record.key);
+                            this.emit('del', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         // core ledger and farming methods
@@ -13017,6 +13037,7 @@ module.exports = function xor (a, b) {
 
 }).call(this,require("buffer").Buffer)
 },{"buffer":53}],53:[function(require,module,exports){
+(function (Buffer){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -14795,7 +14816,8 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":20,"ieee754":110}],54:[function(require,module,exports){
+}).call(this,require("buffer").Buffer)
+},{"base64-js":20,"buffer":53,"ieee754":110}],54:[function(require,module,exports){
 module.exports = {
   "100": "Continue",
   "101": "Switching Protocols",
@@ -18061,10 +18083,10 @@ EdwardsCurve.prototype.pointFromY = function pointFromY(y, odd) {
   if (!y.red)
     y = y.toRed(this.red);
 
-  // x^2 = (y^2 - c^2) / (c^2 d y^2 - a)
+  // x^2 = (y^2 - 1) / (d y^2 + 1)
   var y2 = y.redSqr();
-  var lhs = y2.redSub(this.c2);
-  var rhs = y2.redMul(this.d).redMul(this.c2).redSub(this.a);
+  var lhs = y2.redSub(this.one);
+  var rhs = y2.redMul(this.d).redAdd(this.one);
   var x2 = lhs.redMul(rhs.redInvm());
 
   if (x2.cmp(this.zero) === 0) {
@@ -18078,7 +18100,7 @@ EdwardsCurve.prototype.pointFromY = function pointFromY(y, odd) {
   if (x.redSqr().redSub(x2).cmp(this.zero) !== 0)
     throw new Error('invalid point');
 
-  if (x.fromRed().isOdd() !== odd)
+  if (x.isOdd() !== odd)
     x = x.redNeg();
 
   return this.point(x, y);
@@ -18155,8 +18177,7 @@ Point.prototype.inspect = function inspect() {
 Point.prototype.isInfinity = function isInfinity() {
   // XXX This code assumes that zero is always zero in red
   return this.x.cmpn(0) === 0 &&
-    (this.y.cmp(this.z) === 0 ||
-    (this.zOne && this.y.cmp(this.curve.c) === 0));
+         this.y.cmp(this.z) === 0;
 };
 
 Point.prototype._extDbl = function _extDbl() {
@@ -18237,7 +18258,7 @@ Point.prototype._projDbl = function _projDbl() {
     // E = C + D
     var e = c.redAdd(d);
     // H = (c * Z1)^2
-    var h = this.curve._mulC(this.z).redSqr();
+    var h = this.curve._mulC(this.c.redMul(this.z)).redSqr();
     // J = E - 2 * H
     var j = e.redSub(h).redSub(h);
     // X3 = c * (B - E) * J
@@ -18413,6 +18434,7 @@ Point.prototype.eqXToP = function eqXToP(x) {
     if (this.x.cmp(rx) === 0)
       return true;
   }
+  return false;
 };
 
 // Compatibility with BaseCurve
@@ -18447,8 +18469,6 @@ function MontCurve(conf) {
   this.b = new BN(conf.b, 16).toRed(this.red);
   this.i4 = new BN(4).toRed(this.red).redInvm();
   this.two = new BN(2).toRed(this.red);
-  // Note: this implementation is according to the original paper
-  // by P. Montgomery, NOT the one by D. J. Bernstein.
   this.a24 = this.i4.redMul(this.a.redAdd(this.two));
 }
 inherits(MontCurve, Base);
@@ -18480,16 +18500,7 @@ function Point(curve, x, z) {
 inherits(Point, Base.BasePoint);
 
 MontCurve.prototype.decodePoint = function decodePoint(bytes, enc) {
-  var bytes = utils.toArray(bytes, enc);
-
-  // TODO Curve448
-  // Montgomery curve points must be represented in the compressed format
-  // https://tools.ietf.org/html/draft-ietf-openpgp-rfc4880bis-02#appendix-B
-  if (bytes.length === 33 && bytes[0] === 0x40)
-    bytes = bytes.slice(1, 33).reverse(); // point must be little-endian
-  if (bytes.length !== 32)
-    throw new Error('Unknown point compression format');
-  return this.point(bytes, 1);
+  return this.point(utils.toArray(bytes, enc), 1);
 };
 
 MontCurve.prototype.point = function point(x, z) {
@@ -18504,16 +18515,8 @@ Point.prototype.precompute = function precompute() {
   // No-op
 };
 
-Point.prototype._encode = function _encode(compact) {
-  var len = this.curve.p.byteLength();
-
-  // Note: the output should always be little-endian
-  // https://tools.ietf.org/html/draft-ietf-openpgp-rfc4880bis-02#appendix-B
-  if (compact) {
-    return [ 0x40 ].concat(this.getX().toArray('le', len));
-  } else {
-    return this.getX().toArray('be', len);
-  }
+Point.prototype._encode = function _encode() {
+  return this.getX().toArray('be', this.curve.p.byteLength());
 };
 
 Point.fromJSON = function fromJSON(curve, obj) {
@@ -18581,8 +18584,6 @@ Point.prototype.diffAdd = function diffAdd(p, diff) {
 };
 
 Point.prototype.mul = function mul(k) {
-  k = new BN(k, 16);
-
   var t = k.clone();
   var a = this; // (N / 2) * Q + Q
   var b = this.curve.point(null, null); // (N / 2) * Q
@@ -19556,6 +19557,7 @@ JPoint.prototype.eqXToP = function eqXToP(x) {
     if (this.x.cmp(rx) === 0)
       return true;
   }
+  return false;
 };
 
 JPoint.prototype.inspect = function inspect() {
@@ -19586,15 +19588,14 @@ function PresetCurve(options) {
     this.curve = new elliptic.curve.short(options);
   else if (options.type === 'edwards')
     this.curve = new elliptic.curve.edwards(options);
-  else if (options.type === 'mont')
+  else
     this.curve = new elliptic.curve.mont(options);
-  else throw new Error('Unknown curve type.');
   this.g = this.curve.g;
   this.n = this.curve.n;
   this.hash = options.hash;
 
   assert(this.g.validate(), 'Invalid curve');
-  assert(this.g.mul(this.n).isInfinity(), 'Invalid curve, n*G != O');
+  assert(this.g.mul(this.n).isInfinity(), 'Invalid curve, G*N != O');
 }
 curves.PresetCurve = PresetCurve;
 
@@ -19707,7 +19708,6 @@ defineCurve('p521', {
   ]
 });
 
-// https://tools.ietf.org/html/rfc7748#section-4.1
 defineCurve('curve25519', {
   type: 'mont',
   prime: 'p25519',
@@ -19715,7 +19715,6 @@ defineCurve('curve25519', {
   a: '76d06',
   b: '1',
   n: '1000000000000000 0000000000000000 14def9dea2f79cd6 5812631a5cf5d3ed',
-  cofactor: '8',
   hash: hash.sha256,
   gRed: false,
   g: [
@@ -19732,77 +19731,16 @@ defineCurve('ed25519', {
   // -121665 * (121666^(-1)) (mod P)
   d: '52036cee2b6ffe73 8cc740797779e898 00700a4d4141d8ab 75eb4dca135978a3',
   n: '1000000000000000 0000000000000000 14def9dea2f79cd6 5812631a5cf5d3ed',
-  cofactor: '8',
   hash: hash.sha256,
   gRed: false,
   g: [
     '216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a',
+
     // 4/5
     '6666666666666666666666666666666666666666666666666666666666666658'
   ]
 });
 
-// https://tools.ietf.org/html/rfc5639#section-3.4
-defineCurve('brainpoolP256r1', {
-  type: 'short',
-  prime: null,
-  p: 'A9FB57DB A1EEA9BC 3E660A90 9D838D72 6E3BF623 D5262028 2013481D 1F6E5377',
-  a: '7D5A0975 FC2C3057 EEF67530 417AFFE7 FB8055C1 26DC5C6C E94A4B44 F330B5D9',
-  b: '26DC5C6C E94A4B44 F330B5D9 BBD77CBF 95841629 5CF7E1CE 6BCCDC18 FF8C07B6',
-  n: 'A9FB57DB A1EEA9BC 3E660A90 9D838D71 8C397AA3 B561A6F7 901E0E82 974856A7',
-  hash: hash.sha256, // or 384, or 512
-  gRed: false,
-  g: [
-    '8BD2AEB9CB7E57CB2C4B482FFC81B7AFB9DE27E1E3BD23C23A4453BD9ACE3262',
-    '547EF835C3DAC4FD97F8461A14611DC9C27745132DED8E545C1D54C72F046997'
-  ]
-});
-
-// https://tools.ietf.org/html/rfc5639#section-3.6
-defineCurve('brainpoolP384r1', {
-  type: 'short',
-  prime: null,
-  p: '8CB91E82 A3386D28 0F5D6F7E 50E641DF 152F7109 ED5456B4 12B1DA19 7FB71123' +
-    'ACD3A729 901D1A71 87470013 3107EC53',
-  a: '7BC382C6 3D8C150C 3C72080A CE05AFA0 C2BEA28E 4FB22787 139165EF BA91F90F' +
-    '8AA5814A 503AD4EB 04A8C7DD 22CE2826',
-  b: '04A8C7DD 22CE2826 8B39B554 16F0447C 2FB77DE1 07DCD2A6 2E880EA5 3EEB62D5' +
-    '7CB43902 95DBC994 3AB78696 FA504C11',
-  n: '8CB91E82 A3386D28 0F5D6F7E 50E641DF 152F7109 ED5456B3 1F166E6C AC0425A7' +
-    'CF3AB6AF 6B7FC310 3B883202 E9046565',
-  hash: hash.sha384, // or 512
-  gRed: false,
-  g: [
-    '1D1C64F068CF45FFA2A63A81B7C13F6B8847A3E77EF14FE3DB7FCAFE0CBD10' +
-      'E8E826E03436D646AAEF87B2E247D4AF1E',
-    '8ABE1D7520F9C2A45CB1EB8E95CFD55262B70B29FEEC5864E19C054FF99129' +
-      '280E4646217791811142820341263C5315'
-  ]
-});
-
-// https://tools.ietf.org/html/rfc5639#section-3.7
-defineCurve('brainpoolP512r1', {
-  type: 'short',
-  prime: null,
-  p: 'AADD9DB8 DBE9C48B 3FD4E6AE 33C9FC07 CB308DB3 B3C9D20E D6639CCA 70330871' +
-    '7D4D9B00 9BC66842 AECDA12A E6A380E6 2881FF2F 2D82C685 28AA6056 583A48F3',
-  a: '7830A331 8B603B89 E2327145 AC234CC5 94CBDD8D 3DF91610 A83441CA EA9863BC' +
-    '2DED5D5A A8253AA1 0A2EF1C9 8B9AC8B5 7F1117A7 2BF2C7B9 E7C1AC4D 77FC94CA',
-  b: '3DF91610 A83441CA EA9863BC 2DED5D5A A8253AA1 0A2EF1C9 8B9AC8B5 7F1117A7' +
-    '2BF2C7B9 E7C1AC4D 77FC94CA DC083E67 984050B7 5EBAE5DD 2809BD63 8016F723',
-  n: 'AADD9DB8 DBE9C48B 3FD4E6AE 33C9FC07 CB308DB3 B3C9D20E D6639CCA 70330870' +
-    '553E5C41 4CA92619 41866119 7FAC1047 1DB1D381 085DDADD B5879682 9CA90069',
-  hash: hash.sha512,
-  gRed: false,
-  g: [
-    '81AEE4BDD82ED9645A21322E9C4C6A9385ED9F70B5D916C1B43B62EEF4D009' +
-      '8EFF3B1F78E2D0D48D50D1687B93B97D5F7C6D5047406A5E688B352209BCB9F822',
-    '7DDE385D566332ECC0EABFA9CF7822FDF209F70024A57B1AA000C55B881F81' +
-      '11B2DCDE494A5F485E5BCA4BD88A2763AED1CA2B2FA8F0540678CD1E0F3AD80892'
-  ]
-});
-
-// https://en.bitcoin.it/wiki/Secp256k1
 var pre;
 try {
   pre = require('./precomputed/secp256k1');
@@ -19878,7 +19816,7 @@ function EC(options) {
   this.g = options.curve.g;
   this.g.precompute(options.curve.n.bitLength() + 1);
 
-  // Hash function for DRBG
+  // Hash for function for DRBG
   this.hash = options.hash || options.curve.hash;
 }
 module.exports = EC;
@@ -19908,12 +19846,6 @@ EC.prototype.genKeyPair = function genKeyPair(options) {
     entropyEnc: options.entropy && options.entropyEnc || 'utf8',
     nonce: this.n.toArray()
   });
-
-  // Key generation for curve25519 is simpler
-  if (this.curve.type === 'mont') {
-    var priv = new BN(drbg.generate(32));
-    return this.keyFromPrivate(priv);
-  }
 
   var bytes = this.n.byteLength();
   var ns2 = this.n.sub(new BN(2));
@@ -20131,7 +20063,6 @@ KeyPair.fromPrivate = function fromPrivate(ec, priv, enc) {
   });
 };
 
-// TODO: should not validate for X25519
 KeyPair.prototype.validate = function validate() {
   var pub = this.getPublic();
 
@@ -20145,7 +20076,13 @@ KeyPair.prototype.validate = function validate() {
   return { result: true, reason: null };
 };
 
-KeyPair.prototype.getPublic = function getPublic(enc, compact) {
+KeyPair.prototype.getPublic = function getPublic(compact, enc) {
+  // compact is optional argument
+  if (typeof compact === 'string') {
+    enc = compact;
+    compact = null;
+  }
+
   if (!this.pub)
     this.pub = this.ec.g.mul(this.priv);
 
@@ -20165,17 +20102,9 @@ KeyPair.prototype.getPrivate = function getPrivate(enc) {
 KeyPair.prototype._importPrivate = function _importPrivate(key, enc) {
   this.priv = new BN(key, enc || 16);
 
-  // For Curve25519/Curve448 we have a specific procedure.
-  // TODO Curve448
-  if (this.ec.curve.type === 'mont') {
-    var one = this.ec.curve.one;
-    var mask = one.ushln(255 - 3).sub(one).ushln(3);
-    this.priv = this.priv.or(one.ushln(255 - 1));
-    this.priv = this.priv.and(mask);
-  } else
-    // Ensure that the priv won't be bigger than n, otherwise we may fail
-    // in fixed multiplication method
-    this.priv = this.priv.umod(this.ec.curve.n);
+  // Ensure that the priv won't be bigger than n, otherwise we may fail
+  // in fixed multiplication method
+  this.priv = this.priv.umod(this.ec.curve.n);
 };
 
 KeyPair.prototype._importPublic = function _importPublic(key, enc) {
@@ -20197,16 +20126,7 @@ KeyPair.prototype._importPublic = function _importPublic(key, enc) {
 
 // ECDH
 KeyPair.prototype.derive = function derive(pub) {
-  var x = pub.mul(this.priv).getX();
-  var len = x.byteLength();
-
-  // Note: this is not ideal, but the RFC's are unclear
-  // https://tools.ietf.org/html/draft-ietf-openpgp-rfc4880bis-02#appendix-B
-  if (this.ec.curve.type === 'mont') {
-    return x.toArray('le', len);
-  } else {
-    return x.toArray('be', len);
-  }
+  return pub.mul(this.priv).getX();
 };
 
 // ECDSA
@@ -20364,7 +20284,6 @@ Signature.prototype.toDER = function toDER(enc) {
 'use strict';
 
 var hash = require('hash.js');
-var HmacDRBG = require('hmac-drbg');
 var elliptic = require('../../elliptic');
 var utils = elliptic.utils;
 var assert = utils.assert;
@@ -20430,33 +20349,12 @@ EDDSA.prototype.hashInt = function hashInt() {
   return utils.intFromLE(hash.digest()).umod(this.curve.n);
 };
 
-EDDSA.prototype.keyPair = function keyPair(options) {
-  return new KeyPair(this, options);
-};
-
 EDDSA.prototype.keyFromPublic = function keyFromPublic(pub) {
   return KeyPair.fromPublic(this, pub);
 };
 
 EDDSA.prototype.keyFromSecret = function keyFromSecret(secret) {
   return KeyPair.fromSecret(this, secret);
-};
-
-EDDSA.prototype.genKeyPair = function genKeyPair(options) {
-  if (!options)
-    options = {};
-
-  // Instantiate Hmac_DRBG
-  var drbg = new HmacDRBG({
-    hash: this.hash,
-    pers: options.pers,
-    persEnc: options.persEnc || 'utf8',
-    entropy: options.entropy || elliptic.rand(this.hash.hmacStrength),
-    entropyEnc: options.entropy && options.entropyEnc || 'utf8',
-    nonce: this.curve.n.toArray()
-  });
-
-  return this.keyFromSecret(drbg.generate(32));
 };
 
 EDDSA.prototype.makeSignature = function makeSignature(sig) {
@@ -20502,7 +20400,7 @@ EDDSA.prototype.isPoint = function isPoint(val) {
   return val instanceof this.pointClass;
 };
 
-},{"../../elliptic":76,"./key":87,"./signature":88,"hash.js":97,"hmac-drbg":109}],87:[function(require,module,exports){
+},{"../../elliptic":76,"./key":87,"./signature":88,"hash.js":97}],87:[function(require,module,exports){
 'use strict';
 
 var elliptic = require('../../elliptic');
@@ -20522,18 +20420,11 @@ var cachedProperty = utils.cachedProperty;
 */
 function KeyPair(eddsa, params) {
   this.eddsa = eddsa;
-  if (params.hasOwnProperty('secret'))
-    this._secret = parseBytes(params.secret);
+  this._secret = parseBytes(params.secret);
   if (eddsa.isPoint(params.pub))
     this._pub = params.pub;
-  else {
+  else
     this._pubBytes = parseBytes(params.pub);
-    if (this._pubBytes && this._pubBytes.length === 33 &&
-        this._pubBytes[0] === 0x40)
-      this._pubBytes = this._pubBytes.slice(1, 33);
-    if (this._pubBytes && this._pubBytes.length !== 32)
-      throw new Error('Unknown point compression format');
-  }
 }
 
 KeyPair.fromPublic = function fromPublic(eddsa, pub) {
@@ -20567,7 +20458,6 @@ cachedProperty(KeyPair, 'privBytes', function privBytes() {
   var hash = this.hash();
   var lastIx = eddsa.encodingLength - 1;
 
-  // https://tools.ietf.org/html/rfc8032#section-5.1.5
   var a = hash.slice(0, eddsa.encodingLength);
   a[0] &= 248;
   a[lastIx] &= 127;
@@ -20602,8 +20492,8 @@ KeyPair.prototype.getSecret = function getSecret(enc) {
   return utils.encode(this.secret(), enc);
 };
 
-KeyPair.prototype.getPublic = function getPublic(enc, compact) {
-  return utils.encode((compact ? [ 0x40 ] : []).concat(this.pubBytes()), enc);
+KeyPair.prototype.getPublic = function getPublic(enc) {
+  return utils.encode(this.pubBytes(), enc);
 };
 
 module.exports = KeyPair;
@@ -21582,49 +21472,37 @@ utils.intFromLE = intFromLE;
 
 },{"bn.js":21,"minimalistic-assert":120,"minimalistic-crypto-utils":121}],91:[function(require,module,exports){
 module.exports={
-  "_from": "github:openpgpjs/elliptic",
-  "_id": "elliptic@6.4.0",
-  "_inBundle": false,
-  "_integrity": "",
-  "_location": "/elliptic",
-  "_phantomChildren": {},
-  "_requested": {
-    "type": "git",
-    "raw": "elliptic@github:openpgpjs/elliptic",
-    "name": "elliptic",
-    "escapedName": "elliptic",
-    "rawSpec": "github:openpgpjs/elliptic",
-    "saveSpec": "github:openpgpjs/elliptic",
-    "fetchSpec": null,
-    "gitCommittish": null
-  },
-  "_requiredBy": [
-    "/browserify-sign",
-    "/create-ecdh",
-    "/openpgp"
+  "name": "elliptic",
+  "version": "6.4.0",
+  "description": "EC cryptography",
+  "main": "lib/elliptic.js",
+  "files": [
+    "lib"
   ],
-  "_resolved": "github:openpgpjs/elliptic#e187e706e11fa51bcd20e46e5119054be4e2a4a6",
-  "_spec": "elliptic@github:openpgpjs/elliptic",
-  "_where": "/web/github/subspace-subspace/node_modules/openpgp",
-  "author": {
-    "name": "Fedor Indutny",
-    "email": "fedor@indutny.com"
+  "scripts": {
+    "jscs": "jscs benchmarks/*.js lib/*.js lib/**/*.js lib/**/**/*.js test/index.js",
+    "jshint": "jscs benchmarks/*.js lib/*.js lib/**/*.js lib/**/**/*.js test/index.js",
+    "lint": "npm run jscs && npm run jshint",
+    "unit": "istanbul test _mocha --reporter=spec test/index.js",
+    "test": "npm run lint && npm run unit",
+    "version": "grunt dist && git add dist/"
   },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:indutny/elliptic"
+  },
+  "keywords": [
+    "EC",
+    "Elliptic",
+    "curve",
+    "Cryptography"
+  ],
+  "author": "Fedor Indutny <fedor@indutny.com>",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/indutny/elliptic/issues"
   },
-  "bundleDependencies": false,
-  "dependencies": {
-    "bn.js": "^4.4.0",
-    "brorand": "^1.0.1",
-    "hash.js": "^1.0.0",
-    "hmac-drbg": "^1.0.0",
-    "inherits": "^2.0.1",
-    "minimalistic-assert": "^1.0.0",
-    "minimalistic-crypto-utils": "^1.0.0"
-  },
-  "deprecated": false,
-  "description": "EC cryptography",
+  "homepage": "https://github.com/indutny/elliptic",
   "devDependencies": {
     "brfs": "^1.4.3",
     "coveralls": "^2.11.3",
@@ -21641,34 +21519,20 @@ module.exports={
     "jshint": "^2.6.0",
     "mocha": "^2.1.0"
   },
-  "files": [
-    "lib"
-  ],
-  "homepage": "https://github.com/indutny/elliptic",
-  "keywords": [
-    "EC",
-    "Elliptic",
-    "curve",
-    "Cryptography"
-  ],
-  "license": "MIT",
-  "main": "lib/elliptic.js",
-  "name": "elliptic",
-  "repository": {
-    "type": "git",
-    "url": "git+ssh://git@github.com/indutny/elliptic.git"
-  },
-  "scripts": {
-    "jscs": "jscs benchmarks/*.js lib/*.js lib/**/*.js lib/**/**/*.js test/index.js",
-    "jshint": "jscs benchmarks/*.js lib/*.js lib/**/*.js lib/**/**/*.js test/index.js",
-    "lint": "npm run jscs && npm run jshint",
-    "test": "npm run lint && npm run unit",
-    "unit": "istanbul test _mocha --reporter=spec test/index.js",
-    "version": "grunt dist && git add dist/"
-  },
-  "version": "6.4.0"
-}
+  "dependencies": {
+    "bn.js": "^4.4.0",
+    "brorand": "^1.0.1",
+    "hash.js": "^1.0.0",
+    "hmac-drbg": "^1.0.0",
+    "inherits": "^2.0.1",
+    "minimalistic-assert": "^1.0.0",
+    "minimalistic-crypto-utils": "^1.0.0"
+  }
 
+,"_resolved": "github:openpgpjs/elliptic#e187e706e11fa51bcd20e46e5119054be4e2a4a6"
+,"_integrity": ""
+,"_from": "elliptic@6.4.0"
+}
 },{}],92:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -38760,7 +38624,8 @@ var AttributeTypeValue = asn.define('AttributeTypeValue', function () {
 var AlgorithmIdentifier = asn.define('AlgorithmIdentifier', function () {
   this.seq().obj(
     this.key('algorithm').objid(),
-    this.key('parameters').optional()
+    this.key('parameters').optional(),
+    this.key('curve').objid().optional()
   )
 })
 
@@ -38802,7 +38667,7 @@ var Extension = asn.define('Extension', function () {
 
 var TBSCertificate = asn.define('TBSCertificate', function () {
   this.seq().obj(
-    this.key('version').explicit(0).int(),
+    this.key('version').explicit(0).int().optional(),
     this.key('serialNumber').int(),
     this.key('signature').use(AlgorithmIdentifier),
     this.key('issuer').use(Name),
@@ -38826,13 +38691,13 @@ var X509Certificate = asn.define('X509Certificate', function () {
 module.exports = X509Certificate
 
 },{"asn1.js":129}],127:[function(require,module,exports){
-(function (Buffer){
 // adapted from https://github.com/apatil/pemstrip
 var findProc = /Proc-Type: 4,ENCRYPTED[\n\r]+DEK-Info: AES-((?:128)|(?:192)|(?:256))-CBC,([0-9A-H]+)[\n\r]+([0-9A-z\n\r\+\/\=]+)[\n\r]+/m
-var startRegex = /^-----BEGIN ((?:.* KEY)|CERTIFICATE)-----/m
-var fullRegex = /^-----BEGIN ((?:.* KEY)|CERTIFICATE)-----([0-9A-z\n\r\+\/\=]+)-----END \1-----$/m
+var startRegex = /^-----BEGIN ((?:.*? KEY)|CERTIFICATE)-----/m
+var fullRegex = /^-----BEGIN ((?:.*? KEY)|CERTIFICATE)-----([0-9A-z\n\r\+\/\=]+)-----END \1-----$/m
 var evp = require('evp_bytestokey')
 var ciphers = require('browserify-aes')
+var Buffer = require('safe-buffer').Buffer
 module.exports = function (okey, password) {
   var key = okey.toString()
   var match = key.match(findProc)
@@ -38842,8 +38707,8 @@ module.exports = function (okey, password) {
     decrypted = new Buffer(match2[2].replace(/[\r\n]/g, ''), 'base64')
   } else {
     var suite = 'aes' + match[1]
-    var iv = new Buffer(match[2], 'hex')
-    var cipherText = new Buffer(match[3].replace(/[\r\n]/g, ''), 'base64')
+    var iv = Buffer.from(match[2], 'hex')
+    var cipherText = Buffer.from(match[3].replace(/[\r\n]/g, ''), 'base64')
     var cipherKey = evp(password, iv.slice(0, 8), parseInt(match[1], 10)).key
     var out = []
     var cipher = ciphers.createDecipheriv(suite, cipherKey, iv)
@@ -38858,14 +38723,13 @@ module.exports = function (okey, password) {
   }
 }
 
-}).call(this,require("buffer").Buffer)
-},{"browserify-aes":26,"buffer":53,"evp_bytestokey":93}],128:[function(require,module,exports){
-(function (Buffer){
+},{"browserify-aes":26,"evp_bytestokey":93,"safe-buffer":178}],128:[function(require,module,exports){
 var asn1 = require('./asn1')
 var aesid = require('./aesid.json')
 var fixProc = require('./fixProc')
 var ciphers = require('browserify-aes')
 var compat = require('pbkdf2')
+var Buffer = require('safe-buffer').Buffer
 module.exports = parseKeys
 
 function parseKeys (buffer) {
@@ -38875,7 +38739,7 @@ function parseKeys (buffer) {
     buffer = buffer.key
   }
   if (typeof buffer === 'string') {
-    buffer = new Buffer(buffer)
+    buffer = Buffer.from(buffer)
   }
 
   var stripped = fixProc(buffer, password)
@@ -38960,7 +38824,7 @@ function decrypt (data, password) {
   var iv = data.algorithm.decrypt.cipher.iv
   var cipherText = data.subjectPrivateKey
   var keylen = parseInt(algo.split('-')[1], 10) / 8
-  var key = compat.pbkdf2Sync(password, salt, iters, keylen)
+  var key = compat.pbkdf2Sync(password, salt, iters, keylen, 'sha1')
   var cipher = ciphers.createDecipheriv(algo, key, iv)
   var out = []
   out.push(cipher.update(cipherText))
@@ -38968,8 +38832,7 @@ function decrypt (data, password) {
   return Buffer.concat(out)
 }
 
-}).call(this,require("buffer").Buffer)
-},{"./aesid.json":124,"./asn1":125,"./fixProc":127,"browserify-aes":26,"buffer":53,"pbkdf2":143}],129:[function(require,module,exports){
+},{"./aesid.json":124,"./asn1":125,"./fixProc":127,"browserify-aes":26,"pbkdf2":143,"safe-buffer":178}],129:[function(require,module,exports){
 var asn1 = exports;
 
 asn1.bignum = require('bn.js');
@@ -48104,73 +47967,8 @@ module.exports = require('../package.json').version;
 
 },{"../package.json":202}],202:[function(require,module,exports){
 module.exports={
-  "_from": "websocket@^1.0.28",
-  "_id": "websocket@1.0.28",
-  "_inBundle": false,
-  "_integrity": "sha512-00y/20/80P7H4bCYkzuuvvfDvh+dgtXi5kzDf3UcZwN6boTYaKvsrtZ5lIYm1Gsg48siMErd9M4zjSYfYFHTrA==",
-  "_location": "/websocket",
-  "_phantomChildren": {},
-  "_requested": {
-    "type": "range",
-    "registry": true,
-    "raw": "websocket@^1.0.28",
-    "name": "websocket",
-    "escapedName": "websocket",
-    "rawSpec": "^1.0.28",
-    "saveSpec": null,
-    "fetchSpec": "^1.0.28"
-  },
-  "_requiredBy": [
-    "/@subspace/network"
-  ],
-  "_resolved": "https://registry.npmjs.org/websocket/-/websocket-1.0.28.tgz",
-  "_shasum": "9e5f6fdc8a3fe01d4422647ef93abdd8d45a78d3",
-  "_spec": "websocket@^1.0.28",
-  "_where": "/web/github/subspace-subspace/node_modules/@subspace/network",
-  "author": {
-    "name": "Brian McKelvey",
-    "email": "theturtle32@gmail.com",
-    "url": "https://github.com/theturtle32"
-  },
-  "browser": "lib/browser.js",
-  "bugs": {
-    "url": "https://github.com/theturtle32/WebSocket-Node/issues"
-  },
-  "bundleDependencies": false,
-  "config": {
-    "verbose": false
-  },
-  "contributors": [
-    {
-      "name": "Iñaki Baz Castillo",
-      "email": "ibc@aliax.net",
-      "url": "http://dev.sipdoc.net"
-    }
-  ],
-  "dependencies": {
-    "debug": "^2.2.0",
-    "nan": "^2.11.0",
-    "typedarray-to-buffer": "^3.1.5",
-    "yaeti": "^0.0.6"
-  },
-  "deprecated": false,
+  "name": "websocket",
   "description": "Websocket Client & Server Library implementing the WebSocket protocol as specified in RFC 6455.",
-  "devDependencies": {
-    "buffer-equal": "^1.0.0",
-    "faucet": "^0.0.1",
-    "gulp": "git+https://github.com/gulpjs/gulp.git#4.0",
-    "gulp-jshint": "^2.0.4",
-    "jshint": "^2.0.0",
-    "jshint-stylish": "^2.2.1",
-    "tape": "^4.9.1"
-  },
-  "directories": {
-    "lib": "./lib"
-  },
-  "engines": {
-    "node": ">=0.10.0"
-  },
-  "homepage": "https://github.com/theturtle32/WebSocket-Node",
   "keywords": [
     "websocket",
     "websockets",
@@ -48183,21 +47981,53 @@ module.exports={
     "server",
     "client"
   ],
-  "license": "Apache-2.0",
-  "main": "index",
-  "name": "websocket",
+  "author": "Brian McKelvey <theturtle32@gmail.com> (https://github.com/theturtle32)",
+  "contributors": [
+    "Iñaki Baz Castillo <ibc@aliax.net> (http://dev.sipdoc.net)"
+  ],
+  "version": "1.0.28",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/theturtle32/WebSocket-Node.git"
+    "url": "https://github.com/theturtle32/WebSocket-Node.git"
+  },
+  "homepage": "https://github.com/theturtle32/WebSocket-Node",
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "dependencies": {
+    "debug": "^2.2.0",
+    "nan": "^2.11.0",
+    "typedarray-to-buffer": "^3.1.5",
+    "yaeti": "^0.0.6"
+  },
+  "devDependencies": {
+    "buffer-equal": "^1.0.0",
+    "faucet": "^0.0.1",
+    "gulp": "git+https://github.com/gulpjs/gulp.git#4.0",
+    "gulp-jshint": "^2.0.4",
+    "jshint-stylish": "^2.2.1",
+    "jshint": "^2.0.0",
+    "tape": "^4.9.1"
+  },
+  "config": {
+    "verbose": false
   },
   "scripts": {
-    "gulp": "gulp",
     "install": "(node-gyp rebuild 2> builderror.log) || (exit 0)",
-    "test": "faucet test/unit"
+    "test": "faucet test/unit",
+    "gulp": "gulp"
   },
-  "version": "1.0.28"
-}
+  "main": "index",
+  "directories": {
+    "lib": "./lib"
+  },
+  "browser": "lib/browser.js",
+  "license": "Apache-2.0"
 
+,"_resolved": "https://registry.npmjs.org/websocket/-/websocket-1.0.28.tgz"
+,"_integrity": "sha512-00y/20/80P7H4bCYkzuuvvfDvh+dgtXi5kzDf3UcZwN6boTYaKvsrtZ5lIYm1Gsg48siMErd9M4zjSYfYFHTrA=="
+,"_from": "websocket@1.0.28"
+}
 },{}],203:[function(require,module,exports){
 module.exports = extend
 
