@@ -236,7 +236,7 @@
                 }
             });
             // database
-            this.database = new database_1.DataBase(this.wallet, this.storage);
+            this.database = new database_1.DataBase(this.wallet, this.storage, this.tracker);
             // network
             this.network = await network_1.default.create(this.bootstrap, this.gatewayNodes, this.gatewayCount, this.delegated, this.wallet, this.env);
             // prune messages every 10 minutes
@@ -1184,263 +1184,283 @@
         // core database methods
         put(content, encrypted) {
             return new Promise(async (resolve, reject) => {
-                // create the record, get hosts, and send requests
-                const privateContract = this.wallet.getPrivateContract();
-                const publicContract = this.wallet.getPublicContract();
-                const record = await this.database.createRecord(content, encrypted);
-                this.wallet.contract.addRecord(record.key, record.getSize());
-                // create a put request signed by contract key
-                const request = {
-                    record: record.getRecord(),
-                    contractKey: privateContract.publicKey,
-                    timestamp: Date.now(),
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
-                const hosts = this.database.getHosts(record.key, publicContract);
-                await this.addRequest('put', record.key, request, hosts);
-                this.on('put-request', async (message) => {
-                    // validate the contract request
-                    const request = message.data;
-                    const record = this.database.loadPackedRecord(request.record);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidPutRequest(record, contract, request);
-                    if (!testRequest.valid) {
-                        this.sendPutResponse(message.sender, false, testRequest.reason, record.key);
-                        return;
-                    }
-                    // validate the record
-                    const testValid = await record.isValid(message.sender);
-                    if (!testValid.valid) {
-                        // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
-                        this.sendPutResponse(message.sender, false, testValid.reason, record.key);
-                        return;
-                    }
-                    // store the record, create PoR, and send reply
-                    await this.database.saveRecord(record, contract);
-                    const proof = record.createPoR(this.wallet.profile.user.id);
-                    this.sendPutResponse(message.sender, true, proof, record.key);
-                });
-                this.on('put-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // validate PoR
-                    const record = await this.database.getRecord(response.key);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('put', record.key);
-                    this.removeRequest('put', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content.value);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('put', record.key);
-                        this.emit('put', record.key, hosts);
-                    }
-                });
+                try {
+                    // create the record, get hosts, and send requests
+                    const privateContract = this.wallet.getPrivateContract();
+                    const publicContract = this.wallet.getPublicContract();
+                    const record = await this.database.createRecord(content, encrypted);
+                    this.wallet.contract.addRecord(record.key, record.getSize());
+                    // create a put request signed by contract key
+                    const request = {
+                        record: record.getRecord(),
+                        contractKey: privateContract.publicKey,
+                        timestamp: Date.now(),
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
+                    const hosts = this.database.getHosts(record.key, publicContract);
+                    await this.addRequest('put', record.key, request, hosts);
+                    this.on('put-request', async (message) => {
+                        // validate the contract request
+                        const request = message.data;
+                        const record = this.database.loadPackedRecord(request.record);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidPutRequest(record, contract, request);
+                        if (!testRequest.valid) {
+                            this.sendPutResponse(message.sender, false, testRequest.reason, record.key);
+                            return;
+                        }
+                        // validate the record
+                        const testValid = await record.isValid(message.sender);
+                        if (!testValid.valid) {
+                            // this.rejectRequest(message.sender, 'put', false, testValid.reason, record.key)
+                            this.sendPutResponse(message.sender, false, testValid.reason, record.key);
+                            return;
+                        }
+                        // store the record, create PoR, and send reply
+                        await this.database.saveRecord(record, contract);
+                        const proof = record.createPoR(this.wallet.profile.user.id);
+                        this.sendPutResponse(message.sender, true, proof, record.key);
+                    });
+                    this.on('put-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // validate PoR
+                        const record = await this.database.getRecord(response.key);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('put', record.key);
+                        this.removeRequest('put', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content.key);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('put', record.key);
+                            this.emit('put', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         get(key) {
             return new Promise(async (resolve, reject) => {
-                // get hosts and send requests
-                const keyObject = this.database.parseRecordKey(key);
-                const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
-                const request = keyObject;
-                await this.addRequest('get', keyObject.recordId, request, hosts);
-                this.on('get-request', async (message) => {
-                    const request = message.data;
-                    // unpack key and validate request
-                    const record = await this.database.getRecord(request.recordId);
-                    const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor);
-                    if (!testRequest.valid) {
-                        this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason);
-                        return;
-                    }
-                    // send the record and PoR back to client
-                    const proof = record.createPoR(this.wallet.profile.user.id);
-                    this.sendGetResponse(message.sender, true, request.recordId, proof, record);
-                });
-                this.on('get-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // load/validate record and validate PoR
-                    const record = await this.database.loadPackedRecord(response.record);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('get', record.key);
-                    this.removeRequest('get', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content.value);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        const hosts = this.resolveRequest('get', record.key);
-                        this.emit('get', record.key, hosts);
-                    }
-                });
+                try {
+                    // get hosts and send requests
+                    const keyObject = this.database.parseRecordKey(key);
+                    const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
+                    const request = keyObject;
+                    await this.addRequest('get', keyObject.recordId, request, hosts);
+                    this.on('get-request', async (message) => {
+                        const request = message.data;
+                        // unpack key and validate request
+                        const record = await this.database.getRecord(request.recordId);
+                        const testRequest = await this.database.isValidGetRequest(record, request.shardId, request.replicationFactor);
+                        if (!testRequest.valid) {
+                            this.sendGetResponse(message.sender, false, request.recordId, testRequest.reason);
+                            return;
+                        }
+                        // send the record and PoR back to client
+                        const proof = record.createPoR(this.wallet.profile.user.id);
+                        this.sendGetResponse(message.sender, true, request.recordId, proof, record);
+                    });
+                    this.on('get-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // load/validate record and validate PoR
+                        const record = await this.database.loadPackedRecord(response.record);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('get', record.key);
+                        this.removeRequest('get', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content.value);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            const hosts = this.resolveRequest('get', record.key);
+                            this.emit('get', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         rev(key, update) {
             return new Promise(async (resolve, reject) => {
-                const keyObject = this.database.parseRecordKey(key);
-                const publicContract = this.wallet.getPublicContract();
-                const privateContract = this.wallet.getPrivateContract();
-                // get the old record and update
-                const oldRecord = await this.database.getRecord(keyObject.recordId);
-                if (oldRecord.value.immutable) {
-                    reject(new Error('Cannot update an immutable record'));
-                }
-                const newRecord = await this.database.revRecord(key, update);
-                const sizeDelta = oldRecord.getSize() - newRecord.getSize();
-                this.wallet.contract.updateRecord(key, sizeDelta);
-                // create a rev request signed by contract key
-                const request = {
-                    record: newRecord.getRecord(),
-                    contractKey: privateContract.publicKey,
-                    shardId: keyObject.shardId,
-                    timestamp: Date.now(),
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
-                // get hosts and send update requests
-                const hosts = this.database.getHosts(key, publicContract);
-                await this.addRequest('rev', key, request, hosts);
-                this.on('rev-request', async (message) => {
-                    // load the request and new record
-                    const request = message.data;
-                    const newRecord = this.database.loadPackedRecord(request.record);
-                    const oldRecord = await this.database.getRecord(newRecord.key);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request);
-                    if (!testRequest.valid) {
-                        this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key);
-                        return;
+                try {
+                    const keyObject = this.database.parseRecordKey(key);
+                    const publicContract = this.wallet.getPublicContract();
+                    const privateContract = this.wallet.getPrivateContract();
+                    // get the old record and update
+                    const oldRecord = await this.database.getRecord(keyObject.recordId);
+                    if (oldRecord.value.immutable) {
+                        reject(new Error('Cannot update an immutable record'));
                     }
-                    // validate the new record
-                    const testValid = await newRecord.isValid(message.sender);
-                    if (!testValid.valid) {
-                        this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key);
-                        return;
-                    }
+                    const newRecord = await this.database.revRecord(key, update);
                     const sizeDelta = oldRecord.getSize() - newRecord.getSize();
-                    // update the record, create PoR and send reply
-                    await this.database.saveRecord(newRecord, contract, true, sizeDelta);
-                    const proof = newRecord.createPoR(this.wallet.profile.user.id);
-                    await this.sendRevResponse(message.sender, true, proof, newRecord.key);
-                });
-                this.on('rev-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(message.data.data));
-                    }
-                    const profile = this.wallet.getProfile();
-                    const contract = this.wallet.getPublicContract();
-                    // validate PoR
-                    const record = await this.database.getRecord(response.key);
-                    if (!record.isValidPoR(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of replication'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('rev', record.key);
-                    this.removeRequest('rev', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
-                        resolve(content);
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('rev', record.key);
-                        this.emit('rev', record.key, hosts);
-                    }
-                });
+                    this.wallet.contract.updateRecord(key, sizeDelta);
+                    // create a rev request signed by contract key
+                    const request = {
+                        record: newRecord.getRecord(),
+                        contractKey: privateContract.publicKey,
+                        shardId: keyObject.shardId,
+                        timestamp: Date.now(),
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), privateContract.privateKeyObject);
+                    // get hosts and send update requests
+                    const hosts = this.database.getHosts(key, publicContract);
+                    await this.addRequest('rev', key, request, hosts);
+                    this.on('rev-request', async (message) => {
+                        // load the request and new record
+                        const request = message.data;
+                        const newRecord = this.database.loadPackedRecord(request.record);
+                        const oldRecord = await this.database.getRecord(newRecord.key);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidRevRequest(oldRecord, newRecord, contract, request.shardId, request);
+                        if (!testRequest.valid) {
+                            this.sendRevResponse(message.sender, false, testRequest.reason, newRecord.key);
+                            return;
+                        }
+                        // validate the new record
+                        const testValid = await newRecord.isValid(message.sender);
+                        if (!testValid.valid) {
+                            this.sendRevResponse(message.sender, false, testValid.reason, newRecord.key);
+                            return;
+                        }
+                        const sizeDelta = oldRecord.getSize() - newRecord.getSize();
+                        // update the record, create PoR and send reply
+                        await this.database.saveRecord(newRecord, contract, true, sizeDelta);
+                        const proof = newRecord.createPoR(this.wallet.profile.user.id);
+                        await this.sendRevResponse(message.sender, true, proof, newRecord.key);
+                    });
+                    this.on('rev-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(message.data.data));
+                        }
+                        const profile = this.wallet.getProfile();
+                        const contract = this.wallet.getPublicContract();
+                        // validate PoR
+                        const record = await this.database.getRecord(response.key);
+                        if (!record.isValidPoR(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of replication'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('rev', record.key);
+                        this.removeRequest('rev', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            const content = await record.getContent(shardMap.id, contract.replicationFactor, profile.privateKeyObject);
+                            resolve(content);
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('rev', record.key);
+                            this.emit('rev', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         del(key) {
             return new Promise(async (resolve, reject) => {
-                // get hosts and send requests
-                const keyObject = this.database.parseRecordKey(key);
-                const contract = this.wallet.getPrivateContract();
-                const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
-                // create a del request signed by contract key
-                const request = {
-                    shardId: keyObject.shardId,
-                    recordId: keyObject.recordId,
-                    replicationFactor: keyObject.replicationFactor,
-                    contractKey: contract.publicKey,
-                    signature: null
-                };
-                request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject);
-                await this.addRequest('del', keyObject.recordId, request, hosts);
-                this.on('del-request', async (message) => {
-                    // unpack key and validate request
-                    const request = message.data;
-                    const record = await this.database.getRecord(request.recordId);
-                    const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
-                    const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request);
-                    if (!testRequest.valid) {
-                        this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId);
-                        return;
-                    }
-                    // delete the record send PoD back to client
-                    await this.database.delRecord(record, request.shardId);
-                    const proof = record.createPoD(this.wallet.profile.user.id);
-                    await this.sendDelResponse(message.sender, true, proof, record.key);
-                });
-                this.on('del-reply', async (message) => {
-                    const response = message.data;
-                    if (!response.valid) {
-                        reject(new Error(response.reason));
-                    }
-                    const contract = this.wallet.getPublicContract();
-                    const record = await this.database.getRecord(response.key);
-                    // load/validate record and validate PoD
-                    if (!record.isValidPoD(message.sender, response.reason)) {
-                        reject(new Error('Host returned invalid proof of deletion'));
-                    }
-                    // remove from pending requests and get size
-                    const pendingSize = this.getRequestSize('del', record.key);
-                    this.removeRequest('del', record.key, message.sender);
-                    const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
-                    const hostLength = shardMap.hosts.length;
-                    // resolve on first valid response
-                    if (pendingSize === hostLength) {
-                        resolve();
-                    }
-                    // emit event and adjust contract when fully resolved
-                    if (pendingSize === 1) {
-                        await this.storage.del(record.key);
-                        await this.wallet.contract.removeRecord(key, record.getSize());
-                        this.rev(contract.id, this.wallet.contract.state);
-                        const hosts = this.resolveRequest('del', record.key);
-                        this.emit('del', record.key, hosts);
-                    }
-                });
+                try {
+                    // get hosts and send requests
+                    const keyObject = this.database.parseRecordKey(key);
+                    const contract = this.wallet.getPrivateContract();
+                    const hosts = this.database.computeHostsforShards([keyObject.shardId], keyObject.replicationFactor)[0].hosts;
+                    // create a del request signed by contract key
+                    const request = {
+                        shardId: keyObject.shardId,
+                        recordId: keyObject.recordId,
+                        replicationFactor: keyObject.replicationFactor,
+                        contractKey: contract.publicKey,
+                        signature: null
+                    };
+                    request.signature = await crypto.sign(JSON.stringify(request), contract.privateKeyObject);
+                    await this.addRequest('del', keyObject.recordId, request, hosts);
+                    this.on('del-request', async (message) => {
+                        // unpack key and validate request
+                        const request = message.data;
+                        const record = await this.database.getRecord(request.recordId);
+                        const contract = JSON.parse(JSON.stringify(this.ledger.pendingContracts.get(crypto.getHash(request.contractKey))));
+                        const testRequest = await this.database.isValidDelRequest(record, contract, keyObject.shardId, request);
+                        if (!testRequest.valid) {
+                            this.sendDelResponse(message.sender, false, testRequest.reason, request.recordId);
+                            return;
+                        }
+                        // delete the record send PoD back to client
+                        await this.database.delRecord(record, request.shardId);
+                        const proof = record.createPoD(this.wallet.profile.user.id);
+                        await this.sendDelResponse(message.sender, true, proof, record.key);
+                    });
+                    this.on('del-reply', async (message) => {
+                        const response = message.data;
+                        if (!response.valid) {
+                            reject(new Error(response.reason));
+                        }
+                        const contract = this.wallet.getPublicContract();
+                        const record = await this.database.getRecord(response.key);
+                        // load/validate record and validate PoD
+                        if (!record.isValidPoD(message.sender, response.reason)) {
+                            reject(new Error('Host returned invalid proof of deletion'));
+                        }
+                        // remove from pending requests and get size
+                        const pendingSize = this.getRequestSize('del', record.key);
+                        this.removeRequest('del', record.key, message.sender);
+                        const shardMap = this.database.getShardAndHostsForKey(record.key, contract);
+                        const hostLength = shardMap.hosts.length;
+                        // resolve on first valid response
+                        if (pendingSize === hostLength) {
+                            resolve();
+                        }
+                        // emit event and adjust contract when fully resolved
+                        if (pendingSize === 1) {
+                            await this.storage.del(record.key);
+                            await this.wallet.contract.removeRecord(key, record.getSize());
+                            this.rev(contract.id, this.wallet.contract.state);
+                            const hosts = this.resolveRequest('del', record.key);
+                            this.emit('del', record.key, hosts);
+                        }
+                    });
+                }
+                catch (e) {
+                    reject(e);
+                }
             });
         }
         // core ledger and farming methods

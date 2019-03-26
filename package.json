@@ -16,11 +16,12 @@
     "@subspace/tracker": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/tracker.git",
     "@subspace/wallet": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/wallet.git",
     "commander": "^2.19.0",
+    "jayson": "^2.1.2",
     "random-bytes-numbers": "^1.0.0"
   },
   "devDependencies": {
     "@types/jest": "^23.3.10",
-    "@types/node": "^10.12.15",
+    "@types/node": "^10.14.3",
     "@types/ws": "^6.0.1",
     "browserify": "^16.2.3",
     "jest": "^23.5.0",
