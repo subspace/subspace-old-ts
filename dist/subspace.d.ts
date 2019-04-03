@@ -6,7 +6,7 @@ import Network from '@subspace/network';
 import { Tracker } from '@subspace/tracker';
 import { Ledger } from '@subspace/ledger';
 import { DataBase, Record } from '@subspace/database';
-import { INeighborProof, IPendingFailure } from './interfaces';
+import { INeighborProof, IPendingFailure, IGetReturn } from './interfaces';
 export default class Subspace extends EventEmitter {
     bootstrap: boolean;
     gatewayNodes: string[];
@@ -74,7 +74,7 @@ export default class Subspace extends EventEmitter {
     }>;
     putContract(txRecord: Record, contractRecord: Record): Promise<void>;
     put(content: any, encrypted: boolean): Promise<string>;
-    get(key: string): Promise<any>;
+    get(key: string): Promise<IGetReturn>;
     rev(key: string, update: any): Promise<any>;
     del(key: string): Promise<void>;
     startFarmer(blockTime?: number): Promise<void>;

@@ -44,7 +44,6 @@ const init = async () => {
     await subspace.startFarmer(10000)
     console.log('Bootstrapped the ledger and started farming')
     
-
     setTimeout( async () => {
       await subspace.reserveSpace(1000000000, 3600000, 2)
       console.log('reserved space')
@@ -79,7 +78,7 @@ const init = async () => {
     // join hosts
 
     setTimeout( async () => {
-      await subspace.joinHosts(0)
+      await subspace.joinHosts()
       console.log('Bootstrapped the tracker and joined hosts')
     }, 6000)
 

@@ -25,7 +25,8 @@ import {
   IShardRequest,
   IShardResponse,
   IPendingFailure,
-  IJoinMessageContents
+  IJoinMessageContents,
+  IGetReturn
 } from './interfaces'
 import {Message} from "./Message";
 import {ArrayMap} from "array-map-set";
@@ -1657,7 +1658,7 @@ export default class Subspace extends EventEmitter {
     })
   }
 
-  public get(key: string): Promise<any> {
+  public get(key: string): Promise<IGetReturn> {
     return new Promise( async (resolve, reject) => {
       // get hosts and send requests
       const keyObject = this.database.parseRecordKey(key)

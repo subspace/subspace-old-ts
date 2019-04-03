@@ -26,6 +26,10 @@ export interface IGetResponse {
     reason: string;
     record?: IRecordObject;
 }
+export interface IGetReturn {
+    key: string;
+    value: any;
+}
 export interface IRevRequest {
     record: IRecordObject;
     contractKey: string;
