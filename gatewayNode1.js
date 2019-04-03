@@ -1,9 +1,9 @@
 const Subspace = require('./dist/subspace')
 
 const init = async () => {
-  
+
   try {
-    const subspace = new Subspace.default(false,  ['772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125'], 1)
+    const subspace = new Subspace.default(false,  ['772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125:8225'], 1)
 
     // subspace.on('ready', () => {
     //   console.log('ready event has fired in full node')
@@ -26,13 +26,13 @@ const init = async () => {
       // console.log(subspace.ledger.clearedBalances)
     })
 
-    await subspace.init('gateway', true, 'gw1')   
+    await subspace.init('gateway', true, 'gw1')
     console.log('Started new node with id: ', subspace.wallet.profile.user.id)
 
     await subspace.seedPlot(100000000000)
     console.log('seeded plot')
 
-    await subspace.join(8126, '127.0.0.1')
+    await subspace.join(8126, '127.0.0.1', 8226)
     console.log('joined the network')
 
     await subspace.startFarmer(10000)
@@ -42,7 +42,7 @@ const init = async () => {
     // console.log('left the network')
 
     setTimeout( async () => {
-      
+
       await subspace.pledgeSpace()
       console.log('pledged space')
 
@@ -61,10 +61,10 @@ const init = async () => {
       }, 10000)
 
     }, 7000)
-   
+
     // setTimeout(async () => {
 
-    //   // leave hosts 
+    //   // leave hosts
 
     //   await subspace.leaveHosts()
     //   console.log('left host')
@@ -74,7 +74,7 @@ const init = async () => {
 
     //   await subspace.network.leave()
     //   console.log('left')
-    // }, 60000)  
+    // }, 60000)
 
   }
   catch (error) {

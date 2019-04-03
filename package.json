@@ -3,29 +3,42 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/subspace.js",
+  "bin": {
+    "subspace": "bin/subspace.js"
+  },
   "types": "dist/subspace.d.ts",
   "dependencies": {
-    "@subspace/crypto": "github:subspace/crypto",
-    "@subspace/database": "github:subspace/database",
-    "@subspace/ledger": "github:subspace/ledger",
-    "@subspace/network": "github:subspace/network",
-    "@subspace/storage": "github:subspace/storage",
-    "@subspace/tracker": "github:subspace/tracker",
-    "@subspace/wallet": "github:subspace/wallet"
+    "@subspace/crypto": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/crypto.git",
+    "@subspace/database": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/database.git",
+    "@subspace/ledger": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/ledger.git",
+    "@subspace/network": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/network.git",
+    "@subspace/storage": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/storage.git",
+    "@subspace/tracker": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/tracker.git",
+    "@subspace/wallet": "https://c9ed7a77df1c3e0e10413b1580924003c4ae75a3:x-oauth-basic@github.com/subspace/wallet.git",
+    "commander": "^2.19.0",
+    "jayson": "^2.1.2",
+    "random-bytes-numbers": "^1.0.0"
   },
   "devDependencies": {
     "@types/jest": "^23.3.10",
-    "@types/node": "^10.12.12",
+    "@types/node": "^10.14.3",
     "@types/ws": "^6.0.1",
+    "browserify": "^16.2.3",
     "jest": "^23.5.0",
     "tape": "^4.9.1",
     "ts-jest": "^23.10.5",
     "ts-node": "^7.0.1",
-    "typescript": "^3.2.2"
+    "typescript": "^3.2.2",
+    "uglify-es": "^3.3.9"
   },
   "scripts": {
+    "subspace": "bin/subspace.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "rm -rf dist/* && tsc -b",
+    "build": "npm run build-node && npm run build-browser",
+    "build-node": "rm -rf dist/* && tsc -b",
+    "build-browser": "npm run browser-bundle && npm run browser-minify",
+    "browser-bundle": "browserify --standalone Subspace dist/subspace.js > dist/subspace.browser.js",
+    "browser-minify": "node_modules/uglify-es/bin/uglifyjs --compress --mangle -- dist/subspace.browser.js > dist/subspace.browser.min.js",
     "watch": "tsc -w"
   },
   "author": "subspace-labs",

@@ -1,0 +1,25 @@
+# Install dependencies, build TypeScript
+FROM subspacelabs/node:10-arm64v8-dev
+
+COPY src /code/src
+COPY types /code/types
+COPY package.json /code
+COPY package-lock.json /code
+COPY tsconfig.json /code
+
+COPY docker/build-ts.sh /build-ts.sh
+
+RUN ["/build-ts.sh"]
+
+# Build final image without build-time dependencies
+FROM subspacelabs/node:10-arm64v8
+
+COPY docker/entrypoint.sh /entrypoint.sh
+
+COPY bin /code/bin
+COPY --from=0 /code/dist /code/dist
+COPY --from=0 /code/node_modules /code/node_modules
+COPY package.json /code
+COPY package-lock.json /code
+
+ENTRYPOINT ["/entrypoint.sh"]

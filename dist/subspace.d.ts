@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import * as EventEmitter from 'events';
 import Wallet from '@subspace/wallet';
 import { IProfileOptions } from "@subspace/wallet";
@@ -57,7 +56,7 @@ export default class Subspace extends EventEmitter {
     private createJoinMessage;
     private createMessage;
     connectToAllGateways(): Promise<void>;
-    join(myTcpPort: number, myAddress: 'localhost', myWsPort?: number): Promise<void>;
+    join(myTcpPort?: number, myAddress?: string, myWsPort?: number): Promise<void>;
     leave(): void;
     connect(nodeId: Uint8Array): Promise<Uint8Array>;
     disconnect(nodeId: Uint8Array): void;
@@ -74,7 +73,7 @@ export default class Subspace extends EventEmitter {
         contractRecord: Record;
     }>;
     putContract(txRecord: Record, contractRecord: Record): Promise<void>;
-    put(content: any, encrypted: boolean): Promise<any>;
+    put(content: any, encrypted: boolean): Promise<string>;
     get(key: string): Promise<any>;
     rev(key: string, update: any): Promise<any>;
     del(key: string): Promise<void>;
