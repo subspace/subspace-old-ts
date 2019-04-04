@@ -513,7 +513,6 @@
                                     const unsignedProof = JSON.parse(JSON.stringify(proof));
                                     unsignedProof.signature = null;
                                     if (await crypto.isValidSignature(unsignedProof, proof.signature, proof.neighbor)) {
-                                        console.log('valid join signature');
                                         validCount++;
                                     }
                                     else {
@@ -523,7 +522,8 @@
                             }
                             // if 2/3 of neighbors have signed, valid join
                             if (validCount >= (neighbors.size * (2 / 3))) {
-                                console.log('Valid host join, updating entry');
+                                const hostId = crypto.getHash(join.publicKey);
+                                this.emit('host-added', hostId);
                                 this.tracker.updateEntry(join);
                                 await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                                 // drop any shards this host replicated from me
@@ -797,7 +797,7 @@
                         await this.database.saveRecord(contractState, contract);
                         const proof = contractState.createPoR(this.wallet.profile.user.id);
                         this.sendContractResponse(message.sender, true, proof, contractState.key);
-                        console.log('Sent valid contract response');
+                        // console.log('Sent valid contract response')
                         break;
                     }
                     case ('put-request'): {
@@ -938,7 +938,6 @@
             await this.network.connectTo(nodeId, publicIp, tcpPort, wsPort);
             const joinRequestMessage = await this.createJoinMessage();
             this.send(nodeId, joinRequestMessage.toBinary(), async (response) => {
-                console.log('received a gateway response');
                 const responseMessage = await Message_1.Message.fromBinary(response, (data, publicKey, signature) => {
                     return crypto.isValidSignature(data, signature, publicKey);
                 });
@@ -1258,7 +1257,7 @@
                 };
                 request.signature = await crypto.sign(request, privateKeyObject);
                 // send request to each valid storage host for contract state, so they may initialize
-                console.log('Sending contract request to', hosts);
+                // console.log('Sending contract request to', hosts)
                 await this.addRequest('contract', contractRecord.key, request, hosts);
                 // gossip the contract tx to the rest of the network for includsion in the chain
                 const contractTxMessage = await this.network.createGenericMessage('tx', txRecord.getRecord());
@@ -1537,7 +1536,7 @@
             let previousBlockRecord = null;
             if (!myLastBlockId) {
                 // get the chain from genesis block
-                console.log('getting chain from genesis block');
+                // console.log('getting chain from genesis block')
                 for (const blockId of chain) {
                     previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord);
                 }
@@ -1551,7 +1550,7 @@
                 const previousBlockValue = JSON.parse(JSON.stringify(this.ledger.clearedBlocks.get(myLastBlockId)));
                 previousBlockRecord = database_1.Record.readUnpacked(myLastBlockId, previousBlockValue);
                 let blockId = null;
-                console.log('getting chain from block: ', myLastBlockId);
+                // console.log('getting chain from block: ', myLastBlockId)
                 for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
                     blockId = chain[i];
                     if (blockId) {
@@ -1799,7 +1798,7 @@
                     // update my neighbors
                     this.neighbors.add(sender);
                     this.neighborProofs.set(sender, JSON.parse(JSON.stringify(response.proof)));
-                    console.log('Added neighbor proof');
+                    this.emit('neighbor-added', sender);
                     resolve();
                 });
             });

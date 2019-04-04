@@ -6,10 +6,9 @@ const BASE_TCP_PORT = 8125
 const BASE_WS_PORT = 8225
 const BLOCK_INTERVAL = 10000
 
-const startGenesisNode = async () => {
-
-  console.log('\nBootstrapping the Subspace Network ...'.red)
-  console.log('---------------------------------------\n'.red)
+const startGenesisNode = async (blockTime) => {
+  console.log('\nBootstrapping the Subspace Network ...'.blue)
+  console.log('---------------------------------------\n'.blue)
 
   const genesisNode = new Subspace.default(true, [])
   console.group('Starting A Genesis Node'.green)
@@ -32,6 +31,10 @@ const startGenesisNode = async () => {
     console.log(`Genesis node recieved a ${type} message from ${sender.substring(0,8)}`.green)
   })
 
+  genesisNode.on('host-added', (hostId) => {
+    console.log(`Genesis node added ${hostId.substring(0,8)} to tracker for valid join`.green)
+  })
+
   await genesisNode.init('gateway', true)
   console.log(`Started new node with id: ${genesisNode.wallet.getProfile().id}`.green)
 
@@ -41,7 +44,7 @@ const startGenesisNode = async () => {
   await genesisNode.join(BASE_TCP_PORT, IP_ADDRESS, BASE_WS_PORT)
   console.log('Bootstrapped the network'.green)
 
-  await genesisNode.startFarmer(BLOCK_INTERVAL)
+  await genesisNode.startFarmer(blockTime)
   console.log('Bootstrapped the ledger and started farming'.green)
 
   await genesisNode.joinHosts()
@@ -51,13 +54,11 @@ const startGenesisNode = async () => {
   return genesisNode
 }
 
-const startGatewayNode = async (genesisAddress, myTcpPort, myWsPort) => {
-
-  
+const startGatewayNode = async (number, genesisAddress, myTcpPort, myWsPort, blockTime) => {
   const gatewayNode = new Subspace.default(false,  [genesisAddress], 1)
   await gatewayNode.init('gateway', true, myTcpPort.toString())
   console.log('\n')
-  console.group(`Gateway node`.yellow)
+  console.group(`Gateway node ${number}`.yellow)
   const gatewayNodeId = gatewayNode.wallet.getProfile().id
   console.log(`Started new gateway node with id: ${gatewayNodeId}`.yellow)
 
@@ -78,54 +79,45 @@ const startGatewayNode = async (genesisAddress, myTcpPort, myWsPort) => {
     console.log(colors.yellow('Tracker:', tracker.values()))
   })
 
+  gatewayNode.on('host-added', (hostId) => {
+    console.log(`GW node ${gatewayNodeId.substring(0,8)} added ${hostId.substring(0,8)} to tracker for valid join`.yellow)
+  })
+
+  gatewayNode.on('neighbor-added', (neighborId) => {
+    console.log(`GW node ${gatewayNodeId.substring(0,8)} connected to host-neighbor ${neighborId.substring(0,8)} and received proof signature`.yellow)
+  })
+
   await gatewayNode.seedPlot(100000000000)
   console.log('Gateway node has seeded plot'.yellow)
 
   await gatewayNode.join(myTcpPort, IP_ADDRESS, myWsPort)
 
-  await gatewayNode.startFarmer(BLOCK_INTERVAL)
+  await gatewayNode.startFarmer(blockTime)
   console.log('Gateway node has synced the ledger and started farming'.yellow)
 
   await gatewayNode.pledgeSpace()
   console.log('Gateway node pledged space'.yellow)
 
   await gatewayNode.joinHosts()
-  console.log('Gateway node has joined the host network'.yellow)
+  console.log('Gateway node has joined the host network\n'.yellow)
 
   console.groupEnd()
 
   return gatewayNode.wallet.getProfile().id
 }
 
-const startGatewayNodes = async (genesisAddress, nodeCount) => {
+const startGatewayNodes = async (genesisAddress, nodeCount, blockTime) => {
   const nodes = new Set()
   let tcpPort = BASE_TCP_PORT 
   let wsPort = BASE_WS_PORT
   for(i=0; i<nodeCount; i++) {
-    const gatewayNodeId = await startGatewayNode(genesisAddress, tcpPort += 1, wsPort += 1)
+    const gatewayNodeId = await startGatewayNode(i+1, genesisAddress, tcpPort += 1, wsPort += 1, blockTime)
     nodes.add(gatewayNodeId)
   }
   return nodes
 }
 
-
-
-const testNetwork = async (nodeCount) => {
-
-  try {
-    // bootstrap the network with a genesis node
-    const genesisNode = await startGenesisNode()
-    const genesisNodeId = genesisNode.wallet.getProfile().id
-
-
-    // create x gateway nodes/hosts/farmers
-    console.log(`Starting ${nodeCount} gateway nodes`)
-    const genesisAddress = `${genesisNodeId}:${IP_ADDRESS}:${BASE_TCP_PORT}:${BASE_WS_PORT}`
-    const nodes = await startGatewayNodes(genesisAddress, nodeCount)
-    
-    console.log(`All gateway nodes have started: ${nodes}`.white)
-    
-    // have the genesis node create a storage contract and put/get
+const testStorage = async () => {
     // call reserve space
     const {txRecord, contractRecord} = await genesisNode.reserveSpace(1000000000, 3600000, 2)
     console.log('\n')
@@ -154,10 +146,32 @@ const testNetwork = async (nodeCount) => {
       console.log('Succefully got get request')
       console.groupEnd()
     }
+} 
+
+const testNetwork = async (nodeCount, blockTime, mode) => {
+  try {
+    // bootstrap the network with a genesis node
+    const genesisNode = await startGenesisNode(blockTime)
+    const genesisNodeId = genesisNode.wallet.getProfile().id
+
+    // create x gateway nodes/hosts/farmers
+    console.log(`Starting ${nodeCount} gateway nodes`.blue)
+    const genesisAddress = `${genesisNodeId}:${IP_ADDRESS}:${BASE_TCP_PORT}:${BASE_WS_PORT}`
+    const nodes = await startGatewayNodes(genesisAddress, nodeCount, blockTime)
+    
+    console.log(colors.green('All gateway nodes have started: ', nodes))
+
+    // have the genesis node create a storage contract and put/get
+    if (mode === 'full') {
+      await testStorage()
+    }
+    
   } catch (e) {
     throw e
   }
 }
 
 const nodeCount = process.argv[2] || 3
-testNetwork(nodeCount)
+const blockTime = process.argv[3] || BLOCK_INTERVAL
+const mode = process.argv[4] || 'full'
+testNetwork(nodeCount, blockTime, mode)
