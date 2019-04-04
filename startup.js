@@ -8,9 +8,31 @@ const BLOCK_INTERVAL = 10000
 
 const startGenesisNode = async () => {
 
+  console.log('\nBootstrapping the Subspace Network ...'.red)
+  console.log('---------------------------------------\n'.red)
+
   const genesisNode = new Subspace.default(true, [])
+  console.group('Starting A Genesis Node'.green)
+
+  genesisNode.on('block', block => {
+    console.log(`Genesis node received and is gossiping a new block solution: ${block.key} `.green)
+  })
+
+  genesisNode.on('applied-block', block => {
+    console.log(`Genesis node applied block: ${block.key}`.green)
+    console.log(colors.green('Ledger Balances: ', genesisNode.ledger.clearedBalances))
+  })
+
+  genesisNode.on('joined-hosts', (neighbors, activeHosts, tracker) => {
+    console.log(`Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.green)
+    console.log(colors.green('Tracker:', tracker.values()))
+  })
+
+  genesisNode.on('message', (sender, type) => {
+    console.log(`Genesis node recieved a ${type} message from ${sender.substring(0,8)}`.green)
+  })
+
   await genesisNode.init('gateway', true)
-  console.group('Genesis Startup'.green)
   console.log(`Started new node with id: ${genesisNode.wallet.getProfile().id}`.green)
 
   await genesisNode.seedPlot(100000000000)
@@ -24,18 +46,8 @@ const startGenesisNode = async () => {
 
   await genesisNode.joinHosts()
   console.log('Bootstrapped the tracker and joined hosts'.green)
+  
   console.groupEnd()
-
-  genesisNode.on('join', () => {
-    console.log('Genesis node joined the Network'.green)
-  })
-
-  genesisNode.on('applied-block', block => {
-
-    console.log(`Genesis node applied block: ${block.key}`.green)
-    console.log(genesisNode.ledger.clearedBalances.green)
-  })
-
   return genesisNode
 }
 
@@ -46,28 +58,41 @@ const startGatewayNode = async (genesisAddress, myTcpPort, myWsPort) => {
   await gatewayNode.init('gateway', true, myTcpPort.toString())
   console.log('\n')
   console.group(`Gateway node`.yellow)
-  console.log(`Started new gateway node with id: ${gatewayNode.wallet.getProfile().id}`.green)
+  const gatewayNodeId = gatewayNode.wallet.getProfile().id
+  console.log(`Started new gateway node with id: ${gatewayNodeId}`.yellow)
+
+  gatewayNode.on('joined', () => {
+    console.log('Gateway node joined the Network'.yellow)
+  })
+
+  gatewayNode.on('message', (sender, type) => {
+    console.log(`GW node ${gatewayNodeId.substring(0,8)} recieved a ${type} message from ${sender.substring(0,8)}`.yellow)
+  })
+
+  gatewayNode.on('block', block => {
+    console.log(`GW node ${gatewayNodeId.substring(0,8)} received and is gossiping a new block solution: ${block.key} `.green)
+  })
+
+  gatewayNode.on('joined-hosts', (neighbors, activeHosts, tracker) => {
+    console.log(`Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.yellow)
+    console.log(colors.yellow('Tracker:', tracker.values()))
+  })
 
   await gatewayNode.seedPlot(100000000000)
   console.log('Gateway node has seeded plot'.yellow)
 
   await gatewayNode.join(myTcpPort, IP_ADDRESS, myWsPort)
-  console.log('Gateway node has joined the network'.yellow)
 
   await gatewayNode.startFarmer(BLOCK_INTERVAL)
   console.log('Gateway node has synced the ledger and started farming'.yellow)
 
   await gatewayNode.pledgeSpace()
-  console.log('Gateway node pledged space'.green)
+  console.log('Gateway node pledged space'.yellow)
 
   await gatewayNode.joinHosts()
   console.log('Gateway node has joined the host network'.yellow)
 
   console.groupEnd()
-
-  gatewayNode.on('join', () => {
-    console.log('Gateway node joined the Network'.green)
-  })
 
   return gatewayNode.wallet.getProfile().id
 }

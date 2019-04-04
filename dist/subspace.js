@@ -207,7 +207,6 @@
             this.ledger = new ledger_1.Ledger(this.storage, this.wallet);
             this.ledger.on('block-solution', async (block) => {
                 // receive a packed record for sending over the network
-                console.log('Gossiping a new block solution: ', block._key, '\n');
                 const blockMessage = await this.network.createGenericMessage('block', block);
                 this.network.gossip(blockMessage);
                 const blockRecord = database_1.Record.readPacked(block._key, block._value);
@@ -323,15 +322,16 @@
             });
             this.network.on('message', async (id, message, callback) => {
                 // TODO: Validation for everything is needed here, otherwise it WILL crash
-                console.log('---MESSAGE---');
+                let messageSender;
+                let messageType;
                 if (message instanceof Uint8Array) {
-                    console.log('Received a binary message from ' + Buffer.from(id).toString('hex').substring(0, 8));
+                    messageSender = Buffer.from(id).toString('hex');
                     const messageObject = await Message_1.Message.fromBinary(message, (data, publicKey, signature) => {
                         return crypto.isValidSignature(data, signature, publicKey);
                     });
                     switch (messageObject.type) {
                         case MESSAGE_TYPES['join']: {
-                            console.log('received a join message');
+                            messageType = 'join';
                             const payloadDecoded = JSON.parse(Buffer.from(messageObject.payload).toString());
                             const payloadObject = {
                                 isGateway: payloadDecoded.isGateway,
@@ -350,14 +350,14 @@
                             break;
                         }
                         case MESSAGE_TYPES['peer-added']: {
-                            console.log('received a peer added message');
+                            messageType = 'peer-added';
                             const peer = messageObject.payload;
                             const connection = this.network.getConnectionFromId(id);
                             connection.peers.push(peer);
                             break;
                         }
                         case MESSAGE_TYPES['peer-removed']: {
-                            console.log('received a peer removed message');
+                            messageType = 'peer-removed';
                             const peer = messageObject.payload;
                             const connection = this.network.getConnectionFromId(id);
                             const index = connection.peers.indexOf(peer);
@@ -365,16 +365,13 @@
                             break;
                         }
                         default:
+                            messageType = 'unknown-binary';
                             console.warn('Unknown binary message type ' + messageObject.type);
                     }
+                    this.emit('message', messageSender, messageType);
                     return;
                 }
-                if (message.sender) {
-                    console.log('Received a', message.type, 'message from', message.sender.substring(0, 8));
-                }
-                else {
-                    console.log('Received a', message.type, 'message');
-                }
+                this.emit('message', message.sender, message.type);
                 // handle validation for gossiped messages here
                 // specific rpc methods are emitted and handled in corresponding parent method
                 // prevent revalidating and regoissiping the same messages
@@ -428,7 +425,6 @@
                         if (this.ledger.hasLedger) {
                             const blockRecord = database_1.Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)));
                             await blockRecord.unpack(null);
-                            console.log('Received a new block via gossip: ', blockRecord.key, '\n');
                             const blockRecordTest = await this.ledger.onBlock(blockRecord);
                             if (!blockRecordTest.valid) {
                                 throw new Error(blockRecordTest.reason);
@@ -1023,7 +1019,6 @@
             this.network.computeNetworkGraph();
             await this.requestGateways(nodeId);
             this.emit('joined');
-            return;
         }
         leave() {
             // leave the subspace network, disconnecting from all peers
@@ -1518,7 +1513,7 @@
                 myLastBlockId = this.ledger.getLastBlockId();
                 gatewayLastBlockId = await this.requestLastBlockId();
             }
-            console.log('Got full ledger');
+            // console.log('Got full ledger')
             this.ledger.hasLedger = true;
             await this.onLedger(blockTime, previousBlockRecord);
         }
@@ -1819,9 +1814,7 @@
             // connect to all valid neighbors
             const activeHosts = this.tracker.getActiveHosts();
             this.neighbors = new Set([...this.tracker.getHostNeighbors(profile.id, activeHosts)]);
-            console.log('Connecting to', this.neighbors.size, 'closest hosts, out of', activeHosts.length, 'active hosts.\n', this.neighbors);
             for (const nodeId of this.neighbors) {
-                console.log('connecting to neighbor');
                 await this.connectToNeighbor(nodeId);
             }
             // get all of my assigned shards, an expensive, (hopefully) one-time operation
@@ -1837,14 +1830,13 @@
                 }
             }
             await Promise.all(promises);
-            console.log('connected to all neighbors');
             // compile signatures, create and gossip the join messsage
             const signatures = [...this.neighborProofs.values()];
             const joinMessage = await this.tracker.createJoinMessage(this.network.myAddress, this.network.myTcpPort, this.network.myWsPort, this.isGateway, signatures);
             await this.network.gossip(joinMessage);
             this.tracker.updateEntry(joinMessage.data);
             this.isHosting = true;
-            this.emit('joined-hosts');
+            this.emit('joined-hosts', this.neighbors.size, activeHosts.length, this.neighbors);
         }
         async requestShard(nodeId, shardId, contractRecordId) {
             return new Promise(async (resolve, reject) => {
