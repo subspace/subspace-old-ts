@@ -119,6 +119,7 @@ const testNetwork = async (nodeCount) => {
 
 
     // create x gateway nodes/hosts/farmers
+    console.log(`Starting ${nodeCount} gateway nodes`)
     const genesisAddress = `${genesisNodeId}:${IP_ADDRESS}:${BASE_TCP_PORT}:${BASE_WS_PORT}`
     const nodes = await startGatewayNodes(genesisAddress, nodeCount)
     
@@ -158,4 +159,5 @@ const testNetwork = async (nodeCount) => {
   }
 }
 
-testNetwork(3)
+const nodeCount = process.argv[2] || 3
+testNetwork(nodeCount)
