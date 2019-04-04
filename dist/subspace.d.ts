@@ -77,6 +77,7 @@ export default class Subspace extends EventEmitter {
     get(key: string): Promise<IGetReturn>;
     rev(key: string, update: any): Promise<any>;
     del(key: string): Promise<void>;
+    syncLedger(blockTime?: number): Promise<void>;
     startFarmer(blockTime?: number): Promise<void>;
     private requestLedger;
     private requestLastBlockId;

@@ -1830,7 +1830,7 @@ export default class Subspace extends EventEmitter {
 
   // core ledger and farming methods
 
-  public async startFarmer(blockTime?: number): Promise<void> {
+  public async syncLedger(blockTime?: number): Promise<void> {
     // bootstrap or fetch the ledger before starting to farm the chain
 
     if (blockTime) {
@@ -1843,8 +1843,12 @@ export default class Subspace extends EventEmitter {
       await this.ledger.bootstrap()
     } else {
       await this.requestLedger(blockTime)
-      this.ledger.isFarming = true
     }
+  }
+
+  public async startFarmer(blockTime?: number): Promise<void> {
+    await this.syncLedger(blockTime)
+    this.ledger.isFarming = true
   }
 
   private async requestLedger(blockTime: number): Promise<void> {

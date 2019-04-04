@@ -1488,7 +1488,7 @@
             });
         }
         // core ledger and farming methods
-        async startFarmer(blockTime) {
+        async syncLedger(blockTime) {
             // bootstrap or fetch the ledger before starting to farm the chain
             if (blockTime) {
                 this.ledger.setBlockTime(blockTime);
@@ -1500,8 +1500,11 @@
             }
             else {
                 await this.requestLedger(blockTime);
-                this.ledger.isFarming = true;
             }
+        }
+        async startFarmer(blockTime) {
+            await this.syncLedger(blockTime);
+            this.ledger.isFarming = true;
         }
         async requestLedger(blockTime) {
             // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
