@@ -1,5 +1,5 @@
 <!doctype html>
-<script src="dist/subspace.browser.js"></script>
+<script src="dist/subspace.browser.js" charset="utf-8"></script>
 <script>
   const init = async () => {
 
@@ -33,7 +33,7 @@
       await subspace.seedPlot()
       console.log('seeded plot')
 
-      await subspace.join(0, '127.0.0.1')
+      await subspace.join(0, 'localhost')
       console.log('joined the network')
 
       await subspace.startFarmer(10000)
