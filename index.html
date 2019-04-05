@@ -1,87 +1,141 @@
 <!doctype html>
-<script src="dist/subspace.browser.js" charset="utf-8"></script>
+<head>
+  <link rel="stylesheet" href="dist/bootstrap.min.css">
+  <script src="dist/subspace.browser.js" charset="utf-8"></script>
+  <script src="dist/vue.js" charset="utf-8"></script>
+</head>
+
+<body>
+  <div id="subspace-debugger">
+    <div class="stats">
+      Node ID:
+      <span v-if="nodeId">{{ nodeId.substring(0,8) }}</span>
+      <br/>
+      Plot size: {{ config.plotSizeBytes }} bytes
+      <br/>
+      Peers: ...
+    </div>
+    <div id="messages" class="messages" ref="messages">
+      <ul class="list list-unstyled">
+        <li v-for="message in messages">{{ message }}</li>
+      </ul>
+    </div>
+    <div class="details">
+      Details...
+    </div>
+  </div>
+
 <script>
-  const init = async () => {
+new Vue({
+    el: '#subspace-debugger',
 
-    try {
-      const subspace = new Subspace.default(false,  ['772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125:8225'], 1)
+    data: {
+      config: {
+        blockTime: 10000,
+        genesisAddress: '772441c914c75d64a3a7af3b2fd9c367ce6fe5c00450a43efe557c544e479de6:127.0.0.1:8125:8225',
+        hostname: 'localhost',
+        plotSizeBytes: 100000000000, // TODO: this is bytes, correct?
+        tcpPort: 8126,
+        wsPort: 8226,
+      },
+      nodeId: null,
+      messages: [],
+      subspace: null,
+    },
 
-      // subspace.on('ready', () => {
-      //   console.log('ready event has fired in full node')
+    methods: {
+      log(message) {
+        // allow 10px inaccuracy
+        const messagesEl = this.$refs.messages
+        const isScrolledToBottom = messagesEl && messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 20
+
+        this.messages.push(message)
+
+        if (isScrolledToBottom) {
+          messagesEl.scrollTop = messagesEl.scrollHeight
+        }
+      }
+    },
+
+    async mounted() {
+      this.log('Initializing...')
+      this.subspace = new Subspace.default(false, [this.config.genesisAddress], 1)
+      // this.network.on('message', async (id: Uint8Array, message: IMessage | Uint8Array, callback?: (message: Uint8Array) => void) => {
+      // Subspace.ledger.on('block-solution', async (block) => {
+      //   this.log(`block solution?? ${block}`)
       // })
-
-      subspace.on('connection', (connection) => {
-        console.log('\nConnected to a new node: ', connection)
+      await this.subspace.init('browser', false)
+      this.subspace.network.on('message', (id, message) => {
+        console.log('message:', id, message)
+      })
+      this.nodeId = this.subspace.wallet.getProfile().id
+      // this.subspace.on('connection', connection => this.jmessages.push(`Connected to ${connection}`))
+      // this.subspace.on('disconnection', nodeId => this.messages.push(`Lost connection to ${nodeId}`))
+      this.subspace.on('joined', () => this.log(`Joined the network with id ${this.nodeId.substring(0,8)}`))
+      this.subspace.on('message', (sender, type, x) => {
+        this.log(`[${sender.substring(0,8)}] ${type}`)
+      })
+      this.subspace.on('block', block => {
+        this.log(`Block ${block}`)
+      })
+      this.subspace.on('joined-hosts', (neighbors, activeHosts, tracker) => {
+        this.log(`Connected to ${neighbors} closest hosts out of ${activeHosts} active hosts`)
+        this.log(`Tracker: ${tracker.values()}`)
       })
 
-      subspace.on('disconnection', (nodeId) => {
-        console.log('Lost connection to node', nodeId)
+      this.subspace.on('host-added', (hostId) => {
+        this.log(`GW node ${gatewayNodeId.substring(0,8)} added ${hostId.substring(0,8)} to tracker for valid join`)
       })
 
-      subspace.on('join', () => {
-        console.log('Joined the Network')
+      this.subspace.on('neighbor-added', (neighborId) => {
+        this.log(`GW node ${gatewayNodeId.substring(0,8)} connected to host-neighbor ${neighborId.substring(0,8)} and received proof signature`.yellow)
       })
 
-      subspace.on('applied-block', block => {
-        console.log('Applied block: ', block.key)
-        // console.log(subspace.ledger.clearedBalances)
-      })
+      this.log(`Seeding ${this.config.plotSizeBytes} byte plot...`)
+      await this.subspace.seedPlot(this.config.plotSizeBytes)
 
-      await subspace.init('browser', false)
-      console.log('Started new node with id: ', subspace.wallet.profile.user.id)
+      this.log('Joining network...')
+      await this.subspace.join(0, this.config.hostname)
 
-      await subspace.seedPlot()
-      console.log('seeded plot')
+      this.log('Starting farmer...')
+      await this.subspace.startFarmer(this.config.blockTime)
 
-      await subspace.join(0, 'localhost')
-      console.log('joined the network')
+      this.log('Pledging space...')
+      await this.subspace.pledgeSpace()
 
-      await subspace.startFarmer(10000)
-      console.log('started farming')
-
-      // await subspace.leave()
-      // console.log('left the network')
-
-      setTimeout( async () => {
-
-        await subspace.pledgeSpace()
-        console.log('pledged space')
-
-        setTimeout( async () => {
-          await subspace.joinHosts()
-          console.log('Joined Hosts!')
-
-          // setTimeout( async() => {
-          //   await subspace.leaveHosts()
-          //   console.log('Left Hosts')
-
-          //   await subspace.stopFarmer()
-          //   console.log('stopped farming')
-          // }, 60000)
-
-        }, 10000)
-
-      }, 7000)
-
-      // setTimeout(async () => {
-
-      //   // leave hosts
-
-      //   await subspace.leaveHosts()
-      //   console.log('left host')
-
-      //   await subspace.stopFarmer()
-      //   console.log('stopped farming')
-
-      //   await subspace.network.leave()
-      //   console.log('left')
-      // }, 60000)
-
+      this.log('Joining hosts...')
+      await this.subspace.joinHosts()
     }
-    catch (error) {
-      throw(error)
-    }
-  }
-
-  init()
+  })
 </script>
+</body>
+
+<style>
+html,body {
+  height: 100%;
+}
+#subspace-debugger {
+  display: flex;
+}
+
+.stats {
+  width: 20%;
+  padding: 10px;
+}
+
+.messages {
+  width: 40%;
+  height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 10px;
+
+  background-color: #eee;
+  font-family: monospace;
+}
+
+.details {
+  width: 40%;
+  padding: 10px;
+}
+</style>
