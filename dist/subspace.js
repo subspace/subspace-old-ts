@@ -368,10 +368,10 @@
                             messageType = 'unknown-binary';
                             console.warn('Unknown binary message type ' + messageObject.type);
                     }
-                    this.emit('message', messageSender, messageType);
+                    this.emit('message', messageSender, messageType, messageObject);
                     return;
                 }
-                this.emit('message', message.sender, message.type);
+                this.emit('message', message.sender, message.type, message);
                 // handle validation for gossiped messages here
                 // specific rpc methods are emitted and handled in corresponding parent method
                 // prevent revalidating and regoissiping the same messages
