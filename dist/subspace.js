@@ -1684,34 +1684,47 @@
             // The block time has already elapsed (negative timeRemaining)
             // The block time has not elapsed and I have a pending block
             // The block time has not elapsed and I do not have a pending block 
-            const startTime = Date.now();
-            await this.requestPendingBlock();
+            // const startTime = Date.now()
+            // const genesisTime = this.ledger.genesisTime
+            // const chainLength = this.ledger.chain.length
+            // const stopTime = genesisTime + ((chainLength) * blockTime)
+            // const currentTime = Date.now()
+            // const timeRemaining = stopTime - currentTime
+            // console.log('\n GenesisTime is', genesisTime)
+            // console.log('Chain length is: ', chainLength)
+            // console.log('Block time is: ', blockTime)
+            // console.log('Stop Time is: ', stopTime)
+            // console.log('Current time is: ', currentTime)
+            // console.log('TIME REMAINING IS: ', timeRemaining)
+            // if (timeRemaining <= 0) {
+            //   await this.ledger.applyBlock(previousBlockRecord, timeRemaining)
+            // } else {
+            //   setTimeout( async () => {
+            //     console.log('STARTED to apply pending block')
+            //     // apply the best solution
+            //     const blockId = this.ledger.validBlocks[0]
+            //     if (blockId) {
+            //       const blockValue = this.ledger.pendingBlocks.get(blockId)
+            //       const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
+            //       await this.ledger.applyBlock(blockRecord)
+            //     }
+            //   }, timeRemaining)
+            // }
             const genesisTime = this.ledger.genesisTime;
             const chainLength = this.ledger.chain.length;
-            const stopTime = genesisTime + ((chainLength) * blockTime);
-            const currentTime = Date.now();
-            const timeRemaining = stopTime - currentTime;
-            console.log('\n GenesisTime is', genesisTime);
-            console.log('Chain length is: ', chainLength);
-            console.log('Block time is: ', blockTime);
-            console.log('Stop Time is: ', stopTime);
-            console.log('Current time is: ', currentTime);
-            console.log('TIME REMAINING IS: ', timeRemaining);
-            if (timeRemaining <= 0) {
-                await this.ledger.applyBlock(previousBlockRecord, timeRemaining);
-            }
-            else {
-                setTimeout(async () => {
-                    console.log('STARTED to apply pending block');
-                    // apply the best solution
-                    const blockId = this.ledger.validBlocks[0];
-                    if (blockId) {
-                        const blockValue = this.ledger.pendingBlocks.get(blockId);
-                        const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
-                        await this.ledger.applyBlock(blockRecord);
-                    }
-                }, timeRemaining);
-            }
+            const stopTime = genesisTime + (chainLength * blockTime);
+            const timeRemaining = stopTime - Date.now();
+            setTimeout(async () => {
+                console.log('STARTED to apply pending block');
+                // apply the best solution
+                const blockId = this.ledger.validBlocks[0];
+                if (blockId) {
+                    const blockValue = this.ledger.pendingBlocks.get(blockId);
+                    const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
+                    await this.ledger.applyBlock(blockRecord);
+                }
+            }, timeRemaining);
+            await this.requestPendingBlock();
             // if time remaining is negative then the block should aready be applied
             // if we apply it now we will need to recalculate the apply block time 
             // create the contract tx for the last block
