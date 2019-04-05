@@ -122,7 +122,7 @@ const startGatewayNodes = async (genesisAddress, nodeCount, blockTime) => {
   return nodes
 }
 
-const testStorage = async () => {
+const testStorage = async (genesisNode) => {
     // call reserve space
     const {txRecord, contractRecord} = await genesisNode.reserveSpace(1000000000, 3600000, 2)
     console.log('\n')
@@ -168,7 +168,7 @@ const testNetwork = async (nodeCount, blockTime, mode) => {
 
     // have the genesis node create a storage contract and put/get
     if (mode === 'full') {
-      await testStorage()
+      await testStorage(genesisNode)
     }
     
   } catch (e) {
