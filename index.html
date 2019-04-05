@@ -17,10 +17,15 @@
     </div> -->
     <div id="messages" class="messages" ref="messages">
       <ul class="list list-unstyled">
-        <li v-for="message in messages" v-on:click="onMessageClick(message)" :class="['message', message === activeMessage ? 'active' :  null ]">
+        <li v-for="message in messages" :class="['message', message === activeMessage ? 'active' :  null ]">
           <span class="time">[{{ message.timestamp | formatTime }}]</span>
-          {{ message.type }}
-          {{ message.sender ? message.sender.substring(0,8) : '-' }}
+          <span v-on:click="onPeerClick(message.sender)" class="message-sender" :style="`color:${message.sender === nodeId ? '#090' : peerColors[peers.indexOf(message.sender) % peers.length]}`">
+            {{ message.sender ? message.sender.substring(0,8) : '-' }}
+          </span>
+          {{ message.verb }}
+          a
+          <span v-on:click="onMessageClick(message)" class="message-type">{{ message.type }}</span>
+          {{ message.class }}
         </li>
       </ul>
     </div>
@@ -41,8 +46,15 @@
         tcpPort: 8126,
         wsPort: 8226,
       },
-      nodeId: null,
       messages: [],
+      nodeId: null,
+      peers: [],
+      peerColors: [
+        '#099',
+        '#909',
+        '#900',
+        '#990',
+      ],
       subspace: null,
     },
 
@@ -64,6 +76,12 @@
     },
 
     methods: {
+      addPeer(peer) {
+        if (!this.peers.includes(peer)) {
+          this.peers.push(peer)
+        }
+      },
+
       log(message) {
         // allow 10px inaccuracy
         const messagesEl = this.$refs.messages
@@ -130,28 +148,55 @@
       // this.subspace.network.on('message', (id, message) => {
       //   console.log('message:', id, message)
       // })
+
       this.nodeId = this.subspace.wallet.getProfile().id
+
       // this.subspace.on('connection', connection => this.jmessages.push(`Connected to ${connection}`))
       // this.subspace.on('disconnection', nodeId => this.messages.push(`Lost connection to ${nodeId}`))
       // this.subspace.on('joined', () => this.log(`Joined the network with id ${this.nodeId.substring(0,8)}`))
-      this.subspace.on('message', (sender, type, message) => {
-        let binaryType = null
+      const messageTypes = [
+        'message',
+        'sent',
+      ]
 
-        if (message.type === 33) {
-          binaryType = 'peer-added'
-          sender = toString(message.sender)
-        }
+      messageTypes.forEach(messageType => {
+        this.subspace.on(messageType, (sender, type, message) => {
+          this.addPeer(sender)
+          let binaryType = null
 
-        this.log({
-          type: message.type,
-          sender: message.sender,
-          timestamp: message.timestamp,
-          data: message,
+          this.log({
+            type: type,
+            sender: sender,
+            timestamp: message.timestamp,
+            verb: message.sender === this.nodeId ? 'received' : 'sent',
+            class: 'message',
+            data: message,
+          })
+          // console.log('message:', message)
         })
-        console.log('message:', message)
       })
-      this.subspace.on('block', block => {
-        this.log(`Block ${block}`)
+
+      const eventTypes = [
+        'joined',
+        'block',
+        'applied-block',
+        'joined-hosts',
+        'host-added',
+        'neighbor-added',
+        'space-reserved',
+      ]
+      eventTypes.forEach(eventType => {
+        this.subspace.on(eventType, (...args) => {
+          console.log(`${eventType}: ${JSON.stringify(args)}`)
+          this.log({
+            type: eventType,
+            sender: this.nodeId,
+            timestamp: Date.now(),
+            verb: 'emitted',
+            class: 'event',
+            data: args,
+          })
+        })
       })
       // this.subspace.on('joined-hosts', (neighbors, activeHosts, tracker) => {
       //   this.log(`Connected to ${neighbors} closest hosts out of ${activeHosts} active hosts`)
@@ -207,10 +252,23 @@ html,body {
 }
 
 .messages .message {
-  cursor: pointer;
+  /* cursor: pointer; */
 }
 .messages .message .time {
   color: #999;
+}
+.messages .message .is-sender {
+  color: #090;
+}
+.messages .message .message-sender {
+  /* color: #009; */
+  /* cursor: pointer; */
+  /* text-decoration: underline; */
+}
+.messages .message .message-type {
+  color: #009;
+  cursor: pointer;
+  text-decoration: underline;
 }
 .messages .message:hover {
   background-color: #f5f5f5;
