@@ -23,6 +23,7 @@ export default class Subspace extends EventEmitter {
     tracker: Tracker;
     database: DataBase;
     ledger: Ledger;
+    crypto: Crypto;
     isGateway: boolean;
     isHosting: boolean;
     env: string;

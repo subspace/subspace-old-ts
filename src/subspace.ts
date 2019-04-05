@@ -118,6 +118,7 @@ export default class Subspace extends EventEmitter {
   public tracker: Tracker
   public database: DataBase
   public ledger: Ledger
+  public crypto: Crypto
 
   public isGateway = false
   public isHosting = false
@@ -1325,16 +1326,21 @@ export default class Subspace extends EventEmitter {
     if (nodeId instanceof Uint8Array) {
       if (message instanceof Uint8Array) {
         await this.network.send(nodeId, message, callback)
+        // const nodeId = nodeId.toString()
+        // this.emit('sent', nodeId.toString() )
       } else {
         await this.network.send(nodeId, message)
+        this.emit('sent', message.sender, message.type, message)
       }
     } else {
       if (message instanceof Uint8Array) {
         await this.network.send(Buffer.from(nodeId, 'hex'), message, callback)
       } else {
         await this.network.send(Buffer.from(nodeId, 'hex'), message)
+        this.emit('sent', message.sender, message.type, message)
       }
     }
+    
   }
 
   // ledger methods
