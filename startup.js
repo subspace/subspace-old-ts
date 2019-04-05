@@ -74,6 +74,11 @@ const startGatewayNode = async (number, genesisAddress, myTcpPort, myWsPort, blo
     console.log(`GW node ${gatewayNodeId.substring(0,8)} received and is gossiping a new block solution: ${block.key} `.green)
   })
 
+  gatewayNode.on('applied-block', block => {
+    console.log(`GW node applied block: ${block.key}`.yellow)
+    // console.log(colors.yellow('Ledger Balances: ', genesisNode.ledger.clearedBalances))
+  })
+
   gatewayNode.on('joined-hosts', (neighbors, activeHosts, tracker) => {
     console.log(`Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.yellow)
     console.log(colors.yellow('Tracker:', tracker.values()))

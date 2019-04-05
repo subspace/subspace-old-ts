@@ -541,8 +541,9 @@ export default class Subspace extends EventEmitter {
             await blockRecord.unpack(null)
             const blockRecordTest = await this.ledger.onBlock(blockRecord)
             if (!blockRecordTest.valid) {
-
-              throw new Error(blockRecordTest.reason)
+              // console.log(blockRecord)
+              const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0,8)} for new block: ${blockRecord.key.substring(0,8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0,8)} -- ${blockRecordTest.reason}`
+              throw new Error(errorMessage)
             }
 
             const blockMessage = await this.network.createGenericMessage('block', (message as IGenericMessage).data)
@@ -1865,7 +1866,9 @@ export default class Subspace extends EventEmitter {
 
     // console.log('Got full ledger')
     this.ledger.hasLedger = true
+    console.log('Got full ledger, but not pending block')
     await this.onLedger(blockTime, previousBlockRecord)
+    console.log('Got full ledger, with pending block')
   }
 
   private requestLastBlockId(): Promise<string> {
@@ -2039,23 +2042,63 @@ export default class Subspace extends EventEmitter {
       // the full interval should always carry forward from the genesis block
 
       // genesis time should be included in each block
+    
+    
 
-    const genesisTime = await this.getGenesisTime()
-    const chainLength = this.ledger.chain.length
-    const stopTime = genesisTime + (chainLength * blockTime)
+    // check to see if there is a pending block 
+      // yes
+        // fetch the pending block
+        // calculate the apply time
+        // is apply time negative
+          // no -> set a timeout to apply the block
+          // yes -> apply the 
+      
+      // no 
 
-    const timeRemaining = stopTime - Date.now()
-    setTimeout( async () => {
-      // apply the best solution
-      const blockId = this.ledger.validBlocks[0]
-      if (blockId) {
-        const blockValue = this.ledger.pendingBlocks.get(blockId)
-        const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
-        await this.ledger.applyBlock(blockRecord)
-      }
-    }, timeRemaining)
+    // cases
+      // The block time has already elapsed (negative timeRemaining)
 
+      // The block time has not elapsed and I have a pending block
+
+      // The block time has not elapsed and I do not have a pending block 
+
+    const startTime = Date.now()
     await this.requestPendingBlock()
+    const genesisTime = this.ledger.genesisTime
+    const chainLength = this.ledger.chain.length
+    const stopTime = genesisTime + ((chainLength) * blockTime)
+    const currentTime = Date.now()
+    const timeRemaining = stopTime - currentTime
+    console.log('\n GenesisTime is', genesisTime)
+    console.log('Chain length is: ', chainLength)
+    console.log('Block time is: ', blockTime)
+    console.log('Stop Time is: ', stopTime)
+    console.log('Current time is: ', currentTime)
+    console.log('TIME REMAINING IS: ', timeRemaining)
+
+    if (timeRemaining <= 0) {
+      await this.ledger.applyBlock(previousBlockRecord, timeRemaining)
+    } else {
+      setTimeout( async () => {
+        console.log('STARTED to apply pending block')
+        // apply the best solution
+        const blockId = this.ledger.validBlocks[0]
+        if (blockId) {
+          const blockValue = this.ledger.pendingBlocks.get(blockId)
+          const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
+          await this.ledger.applyBlock(blockRecord)
+        }
+      }, timeRemaining)
+    }
+
+    // if time remaining is negative then the block should aready be applied
+    // if we apply it now we will need to recalculate the apply block time 
+
+    
+
+    
+
+    
 
     // create the contract tx for the last block
   }
@@ -2068,7 +2111,8 @@ export default class Subspace extends EventEmitter {
     return genesisRecord.value.createdAt
   }
 
-  private async requestPendingBlock(): Promise<void> {
+  private async requestPendingBlock(): Promise<boolean> {
+    let response = false
     const pendingBlockHeader = await this.requestPendingBlockHeader()
     if (pendingBlockHeader) {
       if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
@@ -2094,8 +2138,12 @@ export default class Subspace extends EventEmitter {
         if (!blockRecordTest.valid) {
           throw new Error(blockRecordTest.reason)
         }
+        
+        console.log('Got full pending block: ', pendingBlockHeader.key)
+        response = true
+        return response
       }
-    }
+    } 
   }
 
   private async requestPendingBlockHeader(): Promise<Record> {
@@ -2109,6 +2157,7 @@ export default class Subspace extends EventEmitter {
         if (pendingBlock) {
           const pendingBlockRecord = Record.readPacked(pendingBlock.key, pendingBlock.value)
           await pendingBlockRecord.unpack(null)
+          console.log('Got pending block header')
           resolve (pendingBlockRecord)
         }
         resolve()
@@ -2127,6 +2176,7 @@ export default class Subspace extends EventEmitter {
       this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
         const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
         await pendingTxRecord.unpack(null)
+        console.log('Got pending tx for pending block')
         resolve(pendingTxRecord)
       })
     })
