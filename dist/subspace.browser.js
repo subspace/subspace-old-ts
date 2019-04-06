@@ -494,10 +494,10 @@
                             messageType = 'unknown-binary';
                             console.warn('Unknown binary message type ' + messageObject.type);
                     }
-                    this.emit('message', messageSender, messageType);
+                    this.emit('message', messageSender, messageType, messageObject);
                     return;
                 }
-                this.emit('message', message.sender, message.type);
+                this.emit('message', message.sender, message.type, message);
                 // handle validation for gossiped messages here
                 // specific rpc methods are emitted and handled in corresponding parent method
                 // prevent revalidating and regoissiping the same messages
@@ -553,7 +553,9 @@
                             await blockRecord.unpack(null);
                             const blockRecordTest = await this.ledger.onBlock(blockRecord);
                             if (!blockRecordTest.valid) {
-                                throw new Error(blockRecordTest.reason);
+                                // console.log(blockRecord)
+                                const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0, 8)} for new block: ${blockRecord.key.substring(0, 8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0, 8)} -- ${blockRecordTest.reason}`;
+                                throw new Error(errorMessage);
                             }
                             const blockMessage = await this.network.createGenericMessage('block', message.data);
                             // should not be returned to the same node
@@ -639,7 +641,6 @@
                                     const unsignedProof = JSON.parse(JSON.stringify(proof));
                                     unsignedProof.signature = null;
                                     if (await crypto.isValidSignature(unsignedProof, proof.signature, proof.neighbor)) {
-                                        console.log('valid join signature');
                                         validCount++;
                                     }
                                     else {
@@ -649,7 +650,8 @@
                             }
                             // if 2/3 of neighbors have signed, valid join
                             if (validCount >= (neighbors.size * (2 / 3))) {
-                                console.log('Valid host join, updating entry');
+                                const hostId = crypto.getHash(join.publicKey);
+                                this.emit('host-added', hostId);
                                 this.tracker.updateEntry(join);
                                 await this.network.gossip(message, Buffer.from(message.sender, 'hex'));
                                 // drop any shards this host replicated from me
@@ -923,7 +925,7 @@
                         await this.database.saveRecord(contractState, contract);
                         const proof = contractState.createPoR(this.wallet.profile.user.id);
                         this.sendContractResponse(message.sender, true, proof, contractState.key);
-                        console.log('Sent valid contract response');
+                        // console.log('Sent valid contract response')
                         break;
                     }
                     case ('put-request'): {
@@ -1064,7 +1066,6 @@
             await this.network.connectTo(nodeId, publicIp, tcpPort, wsPort);
             const joinRequestMessage = await this.createJoinMessage();
             this.send(nodeId, joinRequestMessage.toBinary(), async (response) => {
-                console.log('received a gateway response');
                 const responseMessage = await Message_1.Message.fromBinary(response, (data, publicKey, signature) => {
                     return crypto.isValidSignature(data, signature, publicKey);
                 });
@@ -1206,9 +1207,12 @@
             if (nodeId instanceof Uint8Array) {
                 if (message instanceof Uint8Array) {
                     await this.network.send(nodeId, message, callback);
+                    // const nodeId = nodeId.toString()
+                    // this.emit('sent', nodeId.toString() )
                 }
                 else {
                     await this.network.send(nodeId, message);
+                    this.emit('sent', message.sender, message.type, message);
                 }
             }
             else {
@@ -1217,6 +1221,7 @@
                 }
                 else {
                     await this.network.send(Buffer.from(nodeId, 'hex'), message);
+                    this.emit('sent', message.sender, message.type, message);
                 }
             }
         }
@@ -1384,7 +1389,7 @@
                 };
                 request.signature = await crypto.sign(request, privateKeyObject);
                 // send request to each valid storage host for contract state, so they may initialize
-                console.log('Sending contract request to', hosts);
+                // console.log('Sending contract request to', hosts)
                 await this.addRequest('contract', contractRecord.key, request, hosts);
                 // gossip the contract tx to the rest of the network for includsion in the chain
                 const contractTxMessage = await this.network.createGenericMessage('tx', txRecord.getRecord());
@@ -1614,7 +1619,7 @@
             });
         }
         // core ledger and farming methods
-        async startFarmer(blockTime) {
+        async syncLedger(blockTime) {
             // bootstrap or fetch the ledger before starting to farm the chain
             if (blockTime) {
                 this.ledger.setBlockTime(blockTime);
@@ -1626,8 +1631,11 @@
             }
             else {
                 await this.requestLedger(blockTime);
-                this.ledger.isFarming = true;
             }
+        }
+        async startFarmer(blockTime) {
+            await this.syncLedger(blockTime);
+            this.ledger.isFarming = true;
         }
         async requestLedger(blockTime) {
             // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
@@ -1641,7 +1649,9 @@
             }
             // console.log('Got full ledger')
             this.ledger.hasLedger = true;
+            console.log('Got full ledger, but not pending block');
             await this.onLedger(blockTime, previousBlockRecord);
+            console.log('Got full ledger, with pending block');
         }
         requestLastBlockId() {
             return new Promise(async (resolve, reject) => {
@@ -1660,7 +1670,7 @@
             let previousBlockRecord = null;
             if (!myLastBlockId) {
                 // get the chain from genesis block
-                console.log('getting chain from genesis block');
+                // console.log('getting chain from genesis block')
                 for (const blockId of chain) {
                     previousBlockRecord = await this.requestLastBlock(blockId, previousBlockRecord);
                 }
@@ -1674,7 +1684,7 @@
                 const previousBlockValue = JSON.parse(JSON.stringify(this.ledger.clearedBlocks.get(myLastBlockId)));
                 previousBlockRecord = database_1.Record.readUnpacked(myLastBlockId, previousBlockValue);
                 let blockId = null;
-                console.log('getting chain from block: ', myLastBlockId);
+                // console.log('getting chain from block: ', myLastBlockId)
                 for (let i = myLastBlockIndex + 1; i <= chain.length; i++) {
                     blockId = chain[i];
                     if (blockId) {
@@ -1792,11 +1802,50 @@
             // the block is gosssiped but not applied until the full interval expires
             // the full interval should always carry forward from the genesis block
             // genesis time should be included in each block
-            const genesisTime = await this.getGenesisTime();
+            // check to see if there is a pending block 
+            // yes
+            // fetch the pending block
+            // calculate the apply time
+            // is apply time negative
+            // no -> set a timeout to apply the block
+            // yes -> apply the 
+            // no 
+            // cases
+            // The block time has already elapsed (negative timeRemaining)
+            // The block time has not elapsed and I have a pending block
+            // The block time has not elapsed and I do not have a pending block 
+            // const startTime = Date.now()
+            // const genesisTime = this.ledger.genesisTime
+            // const chainLength = this.ledger.chain.length
+            // const stopTime = genesisTime + ((chainLength) * blockTime)
+            // const currentTime = Date.now()
+            // const timeRemaining = stopTime - currentTime
+            // console.log('\n GenesisTime is', genesisTime)
+            // console.log('Chain length is: ', chainLength)
+            // console.log('Block time is: ', blockTime)
+            // console.log('Stop Time is: ', stopTime)
+            // console.log('Current time is: ', currentTime)
+            // console.log('TIME REMAINING IS: ', timeRemaining)
+            // if (timeRemaining <= 0) {
+            //   await this.ledger.applyBlock(previousBlockRecord, timeRemaining)
+            // } else {
+            //   setTimeout( async () => {
+            //     console.log('STARTED to apply pending block')
+            //     // apply the best solution
+            //     const blockId = this.ledger.validBlocks[0]
+            //     if (blockId) {
+            //       const blockValue = this.ledger.pendingBlocks.get(blockId)
+            //       const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
+            //       await this.ledger.applyBlock(blockRecord)
+            //     }
+            //   }, timeRemaining)
+            // }
+            const genesisTime = this.ledger.genesisTime;
             const chainLength = this.ledger.chain.length;
             const stopTime = genesisTime + (chainLength * blockTime);
             const timeRemaining = stopTime - Date.now();
             setTimeout(async () => {
+                console.log('STARTED to apply pending block');
                 // apply the best solution
                 const blockId = this.ledger.validBlocks[0];
                 if (blockId) {
@@ -1806,6 +1855,8 @@
                 }
             }, timeRemaining);
             await this.requestPendingBlock();
+            // if time remaining is negative then the block should aready be applied
+            // if we apply it now we will need to recalculate the apply block time 
             // create the contract tx for the last block
         }
         async getGenesisTime() {
@@ -1816,6 +1867,7 @@
             return genesisRecord.value.createdAt;
         }
         async requestPendingBlock() {
+            let response = false;
             const pendingBlockHeader = await this.requestPendingBlockHeader();
             if (pendingBlockHeader) {
                 if (!this.ledger.pendingBlocks.has(pendingBlockHeader.key)) {
@@ -1838,6 +1890,9 @@
                     if (!blockRecordTest.valid) {
                         throw new Error(blockRecordTest.reason);
                     }
+                    console.log('Got full pending block: ', pendingBlockHeader.key);
+                    response = true;
+                    return response;
                 }
             }
         }
@@ -1851,6 +1906,7 @@
                     if (pendingBlock) {
                         const pendingBlockRecord = database_1.Record.readPacked(pendingBlock.key, pendingBlock.value);
                         await pendingBlockRecord.unpack(null);
+                        console.log('Got pending block header');
                         resolve(pendingBlockRecord);
                     }
                     resolve();
@@ -1866,6 +1922,7 @@
                 this.once('pending-tx-reply', async (pendingTx) => {
                     const pendingTxRecord = database_1.Record.readPacked(pendingTx.key, pendingTx.value);
                     await pendingTxRecord.unpack(null);
+                    console.log('Got pending tx for pending block');
                     resolve(pendingTxRecord);
                 });
             });
@@ -1922,7 +1979,7 @@
                     // update my neighbors
                     this.neighbors.add(sender);
                     this.neighborProofs.set(sender, JSON.parse(JSON.stringify(response.proof)));
-                    console.log('Added neighbor proof');
+                    this.emit('neighbor-added', sender);
                     resolve();
                 });
             });
@@ -3305,6 +3362,7 @@ class Ledger extends events_1.EventEmitter {
         this.clearedImmutableCost = 0;
         this.isFarming = false;
         this.hasLedger = false;
+        this.genesisTime = 0;
         this.clearedBalances.set(NEXUS_ADDRESS, 10000);
         // this.clearedBalances.set(FARMER_ADDRESS, 0)
     }
@@ -3439,11 +3497,11 @@ class Ledger extends events_1.EventEmitter {
         await blockRecord.unpack(profile.privateKeyObject);
         await this.applyBlock(blockRecord);
     }
-    computeSolution(block, previousBlock, maxDelay) {
+    computeSolution(block, previousBlock, elapsedTime) {
         // called once a new block round starts
         // create a dummy block to compute solution and delay
         const solution = block.getBestSolution(this.wallet.profile.proof.plot, previousBlock);
-        const time = block.getTimeDelay();
+        const time = block.getTimeDelay(elapsedTime);
         // set a timer to wait for time delay to checking if soltuion is best
         setTimeout(async () => {
             if (this.isBestBlockSolution(solution)) {
@@ -3584,6 +3642,16 @@ class Ledger extends events_1.EventEmitter {
             }
             case ('contract'): {
                 // have to ensure the farmer does not apply a tx fee to the block storage payment 
+                // why are record.key and tx.value.contractId not the same?
+                // immutable vs mutable contracts ... 
+                // goes back to original dilemma, if immutable contracts can have mutable state
+                // this would work for block storage, as they could be organized around shards as well
+                // each block, farmer would check size of leder storage contract
+                // if space avaiable then add the block header and txs to appropriate shard
+                // if not, then create a new immutalbe storage contract, paid for by the nexus
+                // nexus of course needs some starting credits to pay out of (must be inlcuded in credit supply)
+                // the contract holders would not store anything unless the block was valid
+                // and the contract state would be append only, but still a mutable record
                 // add the contract to contracts
                 this.pendingContracts.set(record.key, {
                     id: record.key,
@@ -3756,11 +3824,15 @@ class Ledger extends events_1.EventEmitter {
         blockTest.valid = true;
         return blockTest;
     }
-    async applyBlock(block) {
+    async applyBlock(block, elapsedTime) {
         // called from bootstrap after block is ready
         // called from self after interval expires
         // this is the best block for this round
         // apply the block to UTXO and reset everything for the next round
+        const startTime = Date.now();
+        if (this.chain.length === 0) {
+            this.genesisTime = block.value.createdAt;
+        }
         // create a reward tx for this block and add to valid tx's 
         const profile = this.wallet.getProfile();
         // save the block and add to cleared blocks, flush the pending blocks 
@@ -3879,9 +3951,11 @@ class Ledger extends events_1.EventEmitter {
             }
         }
         this.emit('applied-block', block);
+        const currentTime = Date.now();
+        elapsedTime += startTime - currentTime;
         if (this.isFarming) {
             const blockValue = new Block(block.value.content);
-            this.computeSolution(blockValue, block.key);
+            this.computeSolution(blockValue, block.key, elapsedTime);
         }
         // set a new interval to wait before applying the next most valid block
         if (this.hasLedger) {
@@ -4148,11 +4222,11 @@ class Block {
         const proof = crypto.createProofOfSpace(seed, this._value.pledge);
         return this._value.solution === this.getBestSolution(proof.plot, previousBlock);
     }
-    getTimeDelay(seed = this._value.solution) {
+    getTimeDelay(elapsedTime, seed = this._value.solution) {
         // computes the time delay for my solution, later a real VDF
         const delay = crypto.createProofOfTime(seed);
         const maxDelay = 1024000;
-        return Math.floor((delay / maxDelay) * BLOCK_IN_MS);
+        return Math.floor((delay / maxDelay) * (BLOCK_IN_MS));
     }
     async sign(privateKeyObject) {
         // signs the block
