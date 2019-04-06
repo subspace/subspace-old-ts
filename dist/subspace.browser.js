@@ -1647,11 +1647,8 @@
                 myLastBlockId = this.ledger.getLastBlockId();
                 gatewayLastBlockId = await this.requestLastBlockId();
             }
-            // console.log('Got full ledger')
             this.ledger.hasLedger = true;
-            console.log('Got full ledger, but not pending block');
             await this.onLedger(blockTime, previousBlockRecord);
-            console.log('Got full ledger, with pending block');
         }
         requestLastBlockId() {
             return new Promise(async (resolve, reject) => {
@@ -1788,20 +1785,6 @@
         async onLedger(blockTime, previousBlockRecord) {
             // called once all cleared blocks have been fetched
             // checks for the best pending block then starts the block interval based on last block publish time
-            // modify hasLedger to listen for new tx now
-            // start the block interval timer based on time remaining on the last cleared block
-            // the pending block is not being applied to the ledger before the next block is gossiped
-            // contract tx is created in applyBlock, but only if farming
-            // when fetching the ledger, reward and contract tx should be created on getting a new block, not recreated
-            // is the contract for the last block fetched being created, so that their will be a contract for the next block
-            // wouldn't start time always be set from the last cleared block?
-            // the interval should always be reset based on the last cleared block, each time
-            // block time will be variable based on the delay
-            // but the most valid block cannot be determined until the delay has expired
-            // each local proposed block is not created until the delay for the best solution expires
-            // the block is gosssiped but not applied until the full interval expires
-            // the full interval should always carry forward from the genesis block
-            // genesis time should be included in each block
             // check to see if there is a pending block 
             // yes
             // fetch the pending block
@@ -1814,50 +1797,51 @@
             // The block time has already elapsed (negative timeRemaining)
             // The block time has not elapsed and I have a pending block
             // The block time has not elapsed and I do not have a pending block 
-            // const startTime = Date.now()
-            // const genesisTime = this.ledger.genesisTime
-            // const chainLength = this.ledger.chain.length
-            // const stopTime = genesisTime + ((chainLength) * blockTime)
-            // const currentTime = Date.now()
-            // const timeRemaining = stopTime - currentTime
-            // console.log('\n GenesisTime is', genesisTime)
-            // console.log('Chain length is: ', chainLength)
-            // console.log('Block time is: ', blockTime)
-            // console.log('Stop Time is: ', stopTime)
-            // console.log('Current time is: ', currentTime)
-            // console.log('TIME REMAINING IS: ', timeRemaining)
-            // if (timeRemaining <= 0) {
-            //   await this.ledger.applyBlock(previousBlockRecord, timeRemaining)
-            // } else {
-            //   setTimeout( async () => {
-            //     console.log('STARTED to apply pending block')
-            //     // apply the best solution
-            //     const blockId = this.ledger.validBlocks[0]
-            //     if (blockId) {
-            //       const blockValue = this.ledger.pendingBlocks.get(blockId)
-            //       const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
-            //       await this.ledger.applyBlock(blockRecord)
-            //     }
-            //   }, timeRemaining)
-            // }
+            await this.requestPendingBlock();
             const genesisTime = this.ledger.genesisTime;
             const chainLength = this.ledger.chain.length;
             const stopTime = genesisTime + (chainLength * blockTime);
-            const timeRemaining = stopTime - Date.now();
-            setTimeout(async () => {
-                console.log('STARTED to apply pending block');
-                // apply the best solution
+            const currentTime = Date.now();
+            const timeRemaining = stopTime - currentTime;
+            // know when the block should be applied, want to set a timeout to then
+            console.log('\n GenesisTime is', genesisTime);
+            console.log('Chain length is: ', chainLength);
+            console.log('Block time is: ', blockTime);
+            console.log('Stop Time is: ', stopTime);
+            console.log('Current time is: ', currentTime);
+            console.log('TIME REMAINING IS: ', timeRemaining);
+            if (timeRemaining <= 0) {
+                console.log('Time remaining is negative, applying pending block immediately.');
                 const blockId = this.ledger.validBlocks[0];
                 if (blockId) {
                     const blockValue = this.ledger.pendingBlocks.get(blockId);
                     const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
                     await this.ledger.applyBlock(blockRecord);
                 }
-            }, timeRemaining);
-            await this.requestPendingBlock();
-            // if time remaining is negative then the block should aready be applied
-            // if we apply it now we will need to recalculate the apply block time 
-            // create the contract tx for the last block
+            }
+            else {
+                console.log('Time remaining is positive, waiting for timeout to expire before applying pending block');
+                setTimeout(async () => {
+                    console.log('Timeout has expired, applying pending block');
+                    // apply the best solution
+                    const blockId = this.ledger.validBlocks[0];
+                    if (blockId) {
+                        const blockValue = this.ledger.pendingBlocks.get(blockId);
+                        const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
+                        await this.ledger.applyBlock(blockRecord);
+                    }
+                }, timeRemaining);
+            }
+            // setTimeout( async () => {
+            //   console.log('STARTED to apply pending block')
+            //   // apply the best solution
+            //   const blockId = this.ledger.validBlocks[0]
+            //   if (blockId) {
+            //     const blockValue = this.ledger.pendingBlocks.get(blockId)
+            //     const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
+            //     this.ledger.applyBlock(blockRecord)
+            //   }
+            // }, timeRemaining)
         }
         async getGenesisTime() {
             // get the
@@ -3513,6 +3497,7 @@ class Ledger extends events_1.EventEmitter {
                 // if still best solution when block interval expires, it will be applied
             }
         }, time);
+        return time;
     }
     async createBlock() {
         // called from compute solution after my time delay expires or on bootstrap
@@ -3824,7 +3809,7 @@ class Ledger extends events_1.EventEmitter {
         blockTest.valid = true;
         return blockTest;
     }
-    async applyBlock(block, elapsedTime) {
+    async applyBlock(block, elapsedTime = 0) {
         // called from bootstrap after block is ready
         // called from self after interval expires
         // this is the best block for this round
@@ -3952,19 +3937,24 @@ class Ledger extends events_1.EventEmitter {
         }
         this.emit('applied-block', block);
         const currentTime = Date.now();
-        elapsedTime += startTime - currentTime;
+        elapsedTime += currentTime - startTime;
         if (this.isFarming) {
             const blockValue = new Block(block.value.content);
-            this.computeSolution(blockValue, block.key, elapsedTime);
+            const timeDelay = this.computeSolution(blockValue, block.key, elapsedTime);
+            if (timeDelay >= (BLOCK_IN_MS - elapsedTime)) {
+                throw new Error('Proof of time will take longer to compute than the block interval, a valid block will not be available to apply.');
+            }
         }
         // set a new interval to wait before applying the next most valid block
+        // what if the interval expires before we have computed a solution for the current block?
+        // we can pass back the solution from the interval and 
         if (this.hasLedger) {
             setTimeout(async () => {
                 const blockId = this.validBlocks[0];
                 const blockValue = this.pendingBlocks.get(blockId);
                 const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
-                await this.applyBlock(blockRecord);
-            }, BLOCK_IN_MS);
+                this.applyBlock(blockRecord);
+            }, BLOCK_IN_MS - elapsedTime);
         }
     }
     async createCreditTx(sender, receiver, amount) {
@@ -4226,7 +4216,7 @@ class Block {
         // computes the time delay for my solution, later a real VDF
         const delay = crypto.createProofOfTime(seed);
         const maxDelay = 1024000;
-        return Math.floor((delay / maxDelay) * (BLOCK_IN_MS));
+        return Math.floor((delay / maxDelay) * (BLOCK_IN_MS - elapsedTime));
     }
     async sign(privateKeyObject) {
         // signs the block

@@ -1,13 +1,16 @@
-Subspace core library with a simple full node for testing.
+Subspace core library with a simple full node and browser client for testing.
 
-Currently the node will bootstrap the chain and solve blocks until the timeout expires.
-
+### Build core protocol and browser client
 ```
 git clone @subspace/subspace
 cd subspace
-yarn
-node fullNode.js
+npm install
+npm run build
+node startup.js 1 10000 bootstrap
 ```
+This will bootstrap a new ledger with one genesis farmer and subsequently add a second farmer, both connected over local host.
+
+You can then open index.html in any browser and client node will connect to the geneis farmer, allowing you visually inspect messages/blocks and monitor network status.
 
 ### Building Docker image
 In order to get source code and build an image run:
