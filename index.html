@@ -1,31 +1,46 @@
 <!doctype html>
 <head>
   <link rel="stylesheet" href="assets/bootstrap.min.css">
-  <script src="dist/subspace.browser.js" charset="utf-8"></script>
   <script src="assets/vue.js" charset="utf-8"></script>
+  <script src="assets/vue-toasted.js" charset="utf-8"></script>
+  <script src="dist/subspace.browser.js" charset="utf-8"></script>
 </head>
 
 <body>
-  <div id="subspace-debugger">
-    <!-- <div class="stats">
-      Node ID:
-      <span v-if="nodeId">{{ nodeId.substring(0,8) }}</span>
-      <br/>
-      Plot size: {{ config.plotSizeBytes }} bytes
-      <br/>
-      Peers: ...
-    </div> -->
+  <div id="subspace-debugger" class="subspace-debugger">
+    <header>
+      <span class="logo"><img src="https://www.subspace.network/wp-content/uploads/2018/10/Asset-12-150x150.png" /></span>
+      <span v-if="nodeId" class="node-id">⭐ {{ nodeId.substring(0,8) }}</span>
+    </header>
     <div id="messages" class="messages" ref="messages">
       <ul class="list list-unstyled">
         <li v-for="message in messages" :class="['message', message === activeMessage ? 'active' :  null ]">
-          <span class="time">[{{ message.timestamp | formatTime }}]</span>
-          <span v-on:click="onPeerClick(message.sender)" class="message-sender" :style="`color:${message.sender === nodeId ? '#090' : peerColors[peers.indexOf(message.sender) % peers.length]}`">
-            {{ message.sender ? message.sender.substring(0,8) : '-' }}
-          </span>
-          {{ message.verb }}
-          a
-          <span v-on:click="onMessageClick(message)" class="message-type">{{ message.type }}</span>
-          {{ message.class }}
+          <div v-if="message.type === 'error'">
+            <span class="time">[{{ message.timestamp | formatTime }}]</span>
+            {{ message }}
+          </div>
+          <div v-if="message.type === 'peer-connection'">
+            <span class="time">[{{ message.timestamp | formatTime }}]</span>
+            {{ message }}
+          </div>
+          <!-- <div v-if="message.type === 'applied-block'">
+            <span class="time">[{{ message.timestamp | formatTime }}]</span>
+            {{ message }}
+          </div> -->
+          <div v-else>
+            <span class="time">[{{ message.timestamp | formatTime }}]</span>
+            <span v-on:click="onPeerClick(message.sender)" class="message-sender" :style="`color:${message.sender === nodeId ? '#090' : peerColors[peers.indexOf(message.sender) % peers.length]}`">
+              <span v-if="message.sender === nodeId">⭐️</span>{{ message.sender ? message.sender.substring(0,8) : '-' }}
+            </span>
+            {{ message.verb }}
+            a
+            <span v-on:click="onMessageClick(message)" class="message-type">
+              {{ message.type }}
+              <span v-if="message.type === 'block'">({{ message.data.data._key.substring(0,8) }})</span>
+              <span v-else-if="message.type === 'applied-block'">{{ message.data[0]._key.substring(0,8) }}</span>
+            </span>
+            {{ message.class }}
+          </div>
         </li>
       </ul>
     </div>
@@ -33,6 +48,8 @@
   </div>
 
 <script>
+  Vue.use(Toasted)
+
   new Vue({
     el: '#subspace-debugger',
 
@@ -82,10 +99,78 @@
         }
       },
 
+      array2hex(array) {
+        let string, i$, len$, byte
+        string = ''
+        for (i$ = 0, len$ = array.length; i$ < len$; ++i$) {
+          byte = array[i$]
+          string += byte.toString(16).padStart(2, '0')
+        }
+        return string
+      },
+
       log(message) {
+        if (message.type === 'error') {
+          this.$toasted.show(
+            'Error', {
+              className: 'error',
+              action: {
+                text: 'Close',
+                onClick: (e, toastObject) => {
+                  toastObject.goAway(0)
+                },
+              },
+            }
+          )
+        } else if (message.type === 'peer-connection') {
+          this.$toasted.show(
+            'Peer connected', {
+              className: 'info',
+              action: {
+                text: 'Close',
+                onClick: (e, toastObject) => {
+                  toastObject.goAway(0)
+                },
+              },
+            }
+          )
+        } else if (message.type === 'applied-block') {
+          if (message.sender === this.nodeId) {
+            this.$toasted.show(
+              `Block ${message.data[0]._key.substring(0,8)} accepted`, {
+                className: 'success',
+                action: [
+                  {
+                    text: 'View',
+                    onClick: (e, toastObject) => {
+                      this.activeMessage = message
+                    },
+                  },
+                  {
+                    text: 'Close',
+                    onClick: (e, toastObject) => {
+                      toastObject.goAway(0)
+                    },
+                  }
+                ],
+              }
+            )
+          }
+        }
+
         // allow 10px inaccuracy
         const messagesEl = this.$refs.messages
         const isScrolledToBottom = messagesEl && messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 20
+        if (message.type === 'join') {
+          debugger
+        } else if (message.type === 'peer-added') {
+          const decoder = new TextDecoder('utf-8')
+          message.data.publicKey = decoder.decode(message.data.publicKey)
+          message.data.signature = decoder.decode(message.data.signature)
+          message.data.payload = this.array2hex(message.data.payload)
+        } else if (message.type === 'peer-removed') {
+          debugger
+        }
 
         this.messages.push(message)
 
@@ -169,19 +254,34 @@
     },
 
     async mounted() {
+      // this.log({
+      //   type: 'error',
+      //   timestamp: Date.now(),
+      // })
+      // this.log({
+      //   type: 'peer-connection',
+      //   timestamp: Date.now(),
+      // })
+
       this.subspace = new Subspace.default(false, [this.config.genesisAddress], 1)
-      // this.network.on('message', async (id: Uint8Array, message: IMessage | Uint8Array, callback?: (message: Uint8Array) => void) => {
-      // Subspace.ledger.on('block-solution', async (block) => {
-      //   this.log(`block solution?? ${block}`)
-      // })
       await this.subspace.init('browser', false)
-      // this.subspace.network.on('message', (id, message) => {
-      //   console.log('message:', id, message)
-      // })
 
       this.nodeId = this.subspace.wallet.getProfile().id
 
-      // this.subspace.on('connection', connection => this.jmessages.push(`Connected to ${connection}`))
+      this.subspace.on('connection', connection => {
+        alert('new connection')
+        debugger
+
+        this.log({
+          type: 'connection',
+          sender: sender,
+          timestamp: message.timestamp,
+          verb: message.sender,
+          class: 'message',
+          data: message,
+        })
+      })
+
       // this.subspace.on('disconnection', nodeId => this.messages.push(`Lost connection to ${nodeId}`))
       // this.subspace.on('joined', () => this.log(`Joined the network with id ${this.nodeId.substring(0,8)}`))
       const messageTypes = [
@@ -202,7 +302,6 @@
             class: 'message',
             data: message,
           })
-          // console.log('message:', message)
         })
       })
 
@@ -242,16 +341,16 @@
       // })
 
       // this.log(`Seeding ${this.config.plotSizeBytes} byte plot...`)
-      // await this.subspace.seedPlot(this.config.plotSizeBytes)
+      await this.subspace.seedPlot(this.config.plotSizeBytes)
 
       // this.log('Joining network...')
       await this.subspace.join(0, this.config.hostname)
 
       // this.log('Starting farmer...')
-      // await this.subspace.startFarmer(this.config.blockTime)
+      await this.subspace.startFarmer(this.config.blockTime)
 
       // this.log('Pledging space...')
-      // await this.subspace.pledgeSpace()
+      await this.subspace.pledgeSpace()
     }
   })
 </script>
@@ -261,13 +360,38 @@
 html,body {
   height: 100%;
 }
-#subspace-debugger {
-  display: flex;
+
+body {
+  padding-top: 40px;
 }
 
-.stats {
+.subspace-debugger {
+  display: flex;
+  flex-direction: row wrap;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  padding: 10px;
+  box-shadow: 0 0 2px rgba(0,0,0,0.5);
+  z-index: 1;
+  position: fixed;
+  backface-visibility: hidden;
+  background-color: #fff;
+  top: 0;
+}
+
+header .logo img {
+  width: 30px;
+  height: 30px;
+  margin: 5px 0 5px 10px;
+}
+
+header .node-id {
+  margin-right: 10px;
+  color: #090;
 }
 
 .messages {
@@ -301,9 +425,9 @@ html,body {
   text-decoration: underline;
 }
 .messages .message:hover {
-  background-color: #f5f5f5;
+  background-color: #ddd;
 }
-.active {
+.messages .message.active {
   background-color: #ddd;
 }
 
@@ -311,14 +435,44 @@ html,body {
   width: 65%;
   padding: 10px;
   height: 100vh;
+  margin: 0;
   max-height: 100vh;
   overflow-y: auto;
+  border-left: 1px solid #ccc;
 }
 
-pre {outline: 1px solid #ccc; padding: 5px; margin: 5px; }
 .string { color: green; }
 .number { color: darkorange; }
 .boolean { color: blue; }
 .null { color: magenta; }
 .key { color: red; }
+
+.toasted-container {
+  backface-visibility: hidden;
+}
+
+.toasted-container.top-right {
+  top: 40px;
+  right: 20px;
+}
+
+.toasted-container .toasted {
+  /* width: 500px; */
+}
+
+.toasted-container .toasted.error {
+  background-color: rgba(255,0,0,0.9);
+}
+
+.toasted-container .toasted.info {
+  background-color: rgba(51,153,255,0.9);
+}
+
+.toasted-container .toasted.success {
+  background-color: rgba(0,153,0, 0.9);
+}
+
+.toasted-container .toasted.toasted-primary .action {
+  color: #fff;
+}
 </style>
