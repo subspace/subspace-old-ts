@@ -50,7 +50,7 @@
 <script>
   Vue.use(Toasted)
 
-  new Vue({
+  const vue = new Vue({
     el: '#subspace-debugger',
 
     data: {
@@ -347,10 +347,10 @@
       await this.subspace.join(0, this.config.hostname)
 
       // this.log('Starting farmer...')
-      await this.subspace.startFarmer(this.config.blockTime)
+      // await this.subspace.startFarmer(this.config.blockTime)
 
-      // this.log('Pledging space...')
-      await this.subspace.pledgeSpace()
+      // // this.log('Pledging space...')
+      // await this.subspace.pledgeSpace()
     }
   })
 </script>
