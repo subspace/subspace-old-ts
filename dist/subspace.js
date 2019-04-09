@@ -211,7 +211,7 @@
                 this.network.gossip(blockMessage);
                 const blockRecord = database_1.Record.readPacked(block._key, block._value);
                 await blockRecord.unpack(null);
-                this.emit('block', blockRecord);
+                this.emit('block-solution', blockRecord);
             });
             this.ledger.on('tx', (txRecord) => {
                 this.emit('tx', txRecord);
@@ -422,13 +422,34 @@
                         break;
                     }
                     case ('block'): {
-                        if (this.ledger.hasLedger) {
+                        if (this.ledger.isFarming) {
                             const blockRecord = database_1.Record.readPacked(message.data._key, JSON.parse(JSON.stringify(message.data._value)));
                             await blockRecord.unpack(null);
+                            // check to make sure you have all the tx's for the proposed block, fetching any missing ones
+                            // for (let txId of blockRecord.value.content.txSet) {
+                            //   if (! this.ledger.validTxs.has(txId)) {
+                            //     console.log('fetching a missing tx', txId)
+                            //     await this.requestPendingTx(txId)
+                            //   }
+                            // }
+                            // how would we know when if there is a pending block or a 
+                            // node a gossips block 1
+                            // node b receives and waits for the timeout (for block interval)
+                            // node a's interval expires and gossips block 2
+                            // node be is still wail for block 1 to be applied
+                            // when a node get a block, and throws error for invalid parent
+                            // it has no valid pending block, meaning
+                            // it did not apply the last pending block
+                            // or it's delay has not completed yet
+                            // actually ... 
+                            // I've already farmed the same block height 
+                            // because my interval expired too quickly 
                             const blockRecordTest = await this.ledger.onBlock(blockRecord);
                             if (!blockRecordTest.valid) {
                                 // console.log(blockRecord)
-                                const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0, 8)} for new block: ${blockRecord.key.substring(0, 8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0, 8)} -- ${blockRecordTest.reason}`;
+                                console.log('Most valid pending block is', this.ledger.validBlocks);
+                                console.log('My last block is', this.ledger.chain[this.ledger.chain.length - 1]);
+                                const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0, 8)} for new block: ${blockRecord.key.substring(0, 8)} with parent ${blockRecord.value.content.previousBlock.substring(0, 8)} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0, 8)} -- ${blockRecordTest.reason}`;
                                 throw new Error(errorMessage);
                             }
                             const blockMessage = await this.network.createGenericMessage('block', message.data);
@@ -496,6 +517,19 @@
                         const pendingTxRecord = database_1.Record.readUnpacked(pendingTxId, pendingTxValue);
                         await pendingTxRecord.pack(null);
                         const response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord());
+                        await this.send(message.sender, response);
+                        break;
+                    }
+                    case ('pending-txs-request'): {
+                        const pendingTxs = [];
+                        // console.log(this.ledger.validTxs.entries())
+                        for (let validTx of this.ledger.validTxs.entries()) {
+                            const pendingTxRecord = database_1.Record.readUnpacked(JSON.parse(JSON.stringify(validTx[0])), JSON.parse(JSON.stringify(validTx[1])));
+                            await pendingTxRecord.pack(null);
+                            pendingTxs.push(pendingTxRecord.getRecord());
+                        }
+                        const response = await this.network.createGenericMessage('pending-txs-reply', pendingTxs);
+                        // console.log(response.data)
                         await this.send(message.sender, response);
                         break;
                     }
@@ -1493,6 +1527,10 @@
             });
         }
         // core ledger and farming methods
+        async startFarmer(blockTime) {
+            await this.syncLedger(blockTime);
+            this.ledger.isFarming = true;
+        }
         async syncLedger(blockTime) {
             // bootstrap or fetch the ledger before starting to farm the chain
             if (blockTime) {
@@ -1506,10 +1544,6 @@
             else {
                 await this.requestLedger(blockTime);
             }
-        }
-        async startFarmer(blockTime) {
-            await this.syncLedger(blockTime);
-            this.ledger.isFarming = true;
         }
         async requestLedger(blockTime) {
             // download the ledger until my last blockId matches gateway's, getting all cleared blocks (headers and txs)
@@ -1659,42 +1693,38 @@
         async onLedger(blockTime, previousBlockRecord) {
             // called once all cleared blocks have been fetched
             // checks for the best pending block then starts the block interval based on last block publish time
-            // check to see if there is a pending block 
-            // yes
-            // fetch the pending block
-            // calculate the apply time
-            // is apply time negative
-            // no -> set a timeout to apply the block
-            // yes -> apply the 
-            // no 
             // cases
             // The block time has already elapsed (negative timeRemaining)
             // The block time has not elapsed and I have a pending block
             // The block time has not elapsed and I do not have a pending block 
-            await this.requestPendingBlock();
+            const blockIsPending = await this.requestPendingBlock();
+            if (!blockIsPending) {
+                // get pending txs that will be included in an upcoming pending block
+                await this.requestPendingTxs();
+            }
             const genesisTime = this.ledger.genesisTime;
             const chainLength = this.ledger.chain.length;
             const stopTime = genesisTime + (chainLength * blockTime);
             const currentTime = Date.now();
             const timeRemaining = stopTime - currentTime;
             // know when the block should be applied, want to set a timeout to then
-            console.log('\n GenesisTime is', genesisTime);
-            console.log('Chain length is: ', chainLength);
-            console.log('Block time is: ', blockTime);
-            console.log('Stop Time is: ', stopTime);
-            console.log('Current time is: ', currentTime);
-            console.log('TIME REMAINING IS: ', timeRemaining);
+            // console.log('\n GenesisTime is', genesisTime)
+            // console.log('Chain length is: ', chainLength)
+            // console.log('Block time is: ', blockTime)
+            // console.log('Stop Time is: ', stopTime)
+            // console.log('Current time is: ', currentTime)
+            // console.log('TIME REMAINING IS: ', timeRemaining)
             if (timeRemaining <= 0) {
                 console.log('Time remaining is negative, applying pending block immediately.');
                 const blockId = this.ledger.validBlocks[0];
                 if (blockId) {
                     const blockValue = this.ledger.pendingBlocks.get(blockId);
                     const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
-                    await this.ledger.applyBlock(blockRecord);
+                    await this.ledger.applyBlock(blockRecord, timeRemaining);
                 }
             }
             else {
-                console.log('Time remaining is positive, waiting for timeout to expire before applying pending block');
+                console.log('Time remaining is positive, waiting for timeout to expire before applying next block');
                 setTimeout(async () => {
                     console.log('Timeout has expired, applying pending block');
                     // apply the best solution
@@ -1706,16 +1736,6 @@
                     }
                 }, timeRemaining);
             }
-            // setTimeout( async () => {
-            //   console.log('STARTED to apply pending block')
-            //   // apply the best solution
-            //   const blockId = this.ledger.validBlocks[0]
-            //   if (blockId) {
-            //     const blockValue = this.ledger.pendingBlocks.get(blockId)
-            //     const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
-            //     this.ledger.applyBlock(blockRecord)
-            //   }
-            // }, timeRemaining)
         }
         async getGenesisTime() {
             // get the
@@ -1764,7 +1784,6 @@
                     if (pendingBlock) {
                         const pendingBlockRecord = database_1.Record.readPacked(pendingBlock.key, pendingBlock.value);
                         await pendingBlockRecord.unpack(null);
-                        console.log('Got pending block header');
                         resolve(pendingBlockRecord);
                     }
                     resolve();
@@ -1780,8 +1799,34 @@
                 this.once('pending-tx-reply', async (pendingTx) => {
                     const pendingTxRecord = database_1.Record.readPacked(pendingTx.key, pendingTx.value);
                     await pendingTxRecord.unpack(null);
-                    console.log('Got pending tx for pending block');
                     resolve(pendingTxRecord);
+                });
+            });
+        }
+        async requestPendingTxs() {
+            return new Promise(async (resolve, reject) => {
+                // rpc method to fetch all pending txs in the mem pool from a gateway node (if there are no pending blocks)
+                const request = await this.network.createGenericMessage('pending-txs-request');
+                const gateway = this.network.getConnectedGateways()[0];
+                this.send(gateway, request);
+                this.once('pending-txs-reply', async (pendingTxs) => {
+                    for (let pendingTx of pendingTxs) {
+                        // console.log(pendingTx)
+                        const pendingTxRecord = database_1.Record.readPacked(pendingTx.key, pendingTx.value);
+                        await pendingTxRecord.unpack(null);
+                        // console.log(pendingTxRecord)
+                        const txRecordTest = await pendingTxRecord.isValid();
+                        // validate the tx record
+                        if (!txRecordTest.valid) {
+                            throw new Error(txRecordTest.reason);
+                        }
+                        // then validate the tx data
+                        const txTest = await this.ledger.onTx(pendingTxRecord);
+                        if (!txTest.valid) {
+                            throw new Error(txTest.reason);
+                        }
+                    }
+                    resolve();
                 });
             });
         }

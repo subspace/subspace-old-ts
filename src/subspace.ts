@@ -276,7 +276,7 @@ export default class Subspace extends EventEmitter {
       this.network.gossip(blockMessage)
       const blockRecord = Record.readPacked(block._key, block._value)
       await blockRecord.unpack(null)
-      this.emit('block', blockRecord)
+      this.emit('block-solution', blockRecord)
     })
 
     this.ledger.on('tx', (txRecord: Record) => {
@@ -326,6 +326,7 @@ export default class Subspace extends EventEmitter {
         this.network.gossip(peerAddedMessage.toBinary(), nodeId)
       })
     })
+
     this.network.on('disconnection', (nodeId: Uint8Array) => {
       // notify all my peers to remove this peer from my connection object
       this.createMessage(MESSAGE_TYPES['peer-removed'], nodeId).then(peerRemovedMessage => {
@@ -419,10 +420,8 @@ export default class Subspace extends EventEmitter {
 
     })
 
-
     this.network.on('message', async (id: Uint8Array, message: IMessage | Uint8Array, callback?: (message: Uint8Array) => void) => {
       // TODO: Validation for everything is needed here, otherwise it WILL crash
-
       let messageSender: string
       let messageType: string
       if (message instanceof Uint8Array) {
@@ -477,7 +476,6 @@ export default class Subspace extends EventEmitter {
         this.emit('message', messageSender, messageType, messageObject)
         return
       }
-
 
       this.emit('message', message.sender, message.type, message)
       
@@ -537,13 +535,40 @@ export default class Subspace extends EventEmitter {
         }
 
         case('block'): {
-          if (this.ledger.hasLedger) {
+          if (this.ledger.isFarming) {
             const blockRecord = Record.readPacked((message as IGenericMessage).data._key, JSON.parse(JSON.stringify((message as IGenericMessage).data._value)))
             await blockRecord.unpack(null)
+
+            // check to make sure you have all the tx's for the proposed block, fetching any missing ones
+            // for (let txId of blockRecord.value.content.txSet) {
+            //   if (! this.ledger.validTxs.has(txId)) {
+            //     console.log('fetching a missing tx', txId)
+            //     await this.requestPendingTx(txId)
+            //   }
+            // }
+
+            // how would we know when if there is a pending block or a 
+
+            // node a gossips block 1
+              // node b receives and waits for the timeout (for block interval)
+            // node a's interval expires and gossips block 2
+              // node be is still wail for block 1 to be applied
+
+            // when a node get a block, and throws error for invalid parent
+              // it has no valid pending block, meaning
+                // it did not apply the last pending block
+                // or it's delay has not completed yet
+
+              // actually ... 
+                // I've already farmed the same block height 
+                // because my interval expired too quickly 
+
             const blockRecordTest = await this.ledger.onBlock(blockRecord)
             if (!blockRecordTest.valid) {
               // console.log(blockRecord)
-              const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0,8)} for new block: ${blockRecord.key.substring(0,8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0,8)} -- ${blockRecordTest.reason}`
+              console.log('Most valid pending block is', this.ledger.validBlocks)
+              console.log('My last block is', this.ledger.chain[this.ledger.chain.length - 1])
+              const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0,8)} for new block: ${blockRecord.key.substring(0,8)} with parent ${blockRecord.value.content.previousBlock.substring(0,8)} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0,8)} -- ${blockRecordTest.reason}`
               throw new Error(errorMessage)
             }
 
@@ -619,6 +644,23 @@ export default class Subspace extends EventEmitter {
           const pendingTxRecord = Record.readUnpacked(pendingTxId, pendingTxValue)
           await pendingTxRecord.pack(null)
           const response = await this.network.createGenericMessage('pending-tx-reply', pendingTxRecord.getRecord())
+          await this.send(message.sender, response)
+          break
+        }
+
+        case('pending-txs-request'): { 
+          const pendingTxs: {key: string, value: Record['value']}[] = []
+          // console.log(this.ledger.validTxs.entries())
+          for (let validTx of this.ledger.validTxs.entries()) {
+            const pendingTxRecord = Record.readUnpacked(
+              JSON.parse(JSON.stringify(validTx[0])), 
+              JSON.parse(JSON.stringify(validTx[1]))
+            )
+            await pendingTxRecord.pack(null)
+            pendingTxs.push(pendingTxRecord.getRecord())
+          }
+          const response = await this.network.createGenericMessage('pending-txs-reply', pendingTxs)
+          // console.log(response.data)
           await this.send(message.sender, response)
           break
         }
@@ -1836,6 +1878,11 @@ export default class Subspace extends EventEmitter {
 
   // core ledger and farming methods
 
+  public async startFarmer(blockTime?: number): Promise<void> {
+    await this.syncLedger(blockTime)
+    this.ledger.isFarming = true
+  }
+
   public async syncLedger(blockTime?: number): Promise<void> {
     // bootstrap or fetch the ledger before starting to farm the chain
 
@@ -1850,11 +1897,6 @@ export default class Subspace extends EventEmitter {
     } else {
       await this.requestLedger(blockTime)
     }
-  }
-
-  public async startFarmer(blockTime?: number): Promise<void> {
-    await this.syncLedger(blockTime)
-    this.ledger.isFarming = true
   }
 
   private async requestLedger(blockTime: number): Promise<void> {
@@ -2023,22 +2065,17 @@ export default class Subspace extends EventEmitter {
     // called once all cleared blocks have been fetched
     // checks for the best pending block then starts the block interval based on last block publish time
 
-    // check to see if there is a pending block 
-      // yes
-        // fetch the pending block
-        // calculate the apply time
-        // is apply time negative
-          // no -> set a timeout to apply the block
-          // yes -> apply the 
-      
-      // no 
-
     // cases
       // The block time has already elapsed (negative timeRemaining)
       // The block time has not elapsed and I have a pending block
       // The block time has not elapsed and I do not have a pending block 
 
-    await this.requestPendingBlock()
+    const blockIsPending = await this.requestPendingBlock()
+    if (!blockIsPending) {
+      // get pending txs that will be included in an upcoming pending block
+      await this.requestPendingTxs() 
+    }
+
     const genesisTime = this.ledger.genesisTime
     const chainLength = this.ledger.chain.length
     const stopTime = genesisTime + (chainLength * blockTime)
@@ -2046,14 +2083,12 @@ export default class Subspace extends EventEmitter {
     const timeRemaining = stopTime - currentTime
 
     // know when the block should be applied, want to set a timeout to then
-
-
-    console.log('\n GenesisTime is', genesisTime)
-    console.log('Chain length is: ', chainLength)
-    console.log('Block time is: ', blockTime)
-    console.log('Stop Time is: ', stopTime)
-    console.log('Current time is: ', currentTime)
-    console.log('TIME REMAINING IS: ', timeRemaining)
+    // console.log('\n GenesisTime is', genesisTime)
+    // console.log('Chain length is: ', chainLength)
+    // console.log('Block time is: ', blockTime)
+    // console.log('Stop Time is: ', stopTime)
+    // console.log('Current time is: ', currentTime)
+    // console.log('TIME REMAINING IS: ', timeRemaining)
 
     if (timeRemaining <= 0) {
       console.log('Time remaining is negative, applying pending block immediately.')
@@ -2061,10 +2096,11 @@ export default class Subspace extends EventEmitter {
       if (blockId) {
         const blockValue = this.ledger.pendingBlocks.get(blockId)
         const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
-        await this.ledger.applyBlock(blockRecord)
+        await this.ledger.applyBlock(blockRecord, timeRemaining)
       }
     } else {
-      console.log('Time remaining is positive, waiting for timeout to expire before applying pending block')
+      console.log('Time remaining is positive, waiting for timeout to expire before applying next block')
+      
       setTimeout( async () => {
         console.log('Timeout has expired, applying pending block')
         // apply the best solution
@@ -2076,18 +2112,6 @@ export default class Subspace extends EventEmitter {
         }
       }, timeRemaining)
     }
-
-
-    // setTimeout( async () => {
-    //   console.log('STARTED to apply pending block')
-    //   // apply the best solution
-    //   const blockId = this.ledger.validBlocks[0]
-    //   if (blockId) {
-    //     const blockValue = this.ledger.pendingBlocks.get(blockId)
-    //     const blockRecord = Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)))
-    //     this.ledger.applyBlock(blockRecord)
-    //   }
-    // }, timeRemaining)
   }
 
   public async getGenesisTime(): Promise<number> {
@@ -2144,7 +2168,6 @@ export default class Subspace extends EventEmitter {
         if (pendingBlock) {
           const pendingBlockRecord = Record.readPacked(pendingBlock.key, pendingBlock.value)
           await pendingBlockRecord.unpack(null)
-          console.log('Got pending block header')
           resolve (pendingBlockRecord)
         }
         resolve()
@@ -2163,9 +2186,39 @@ export default class Subspace extends EventEmitter {
       this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
         const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
         await pendingTxRecord.unpack(null)
-        console.log('Got pending tx for pending block')
         resolve(pendingTxRecord)
       })
+    })
+  }
+
+  private async requestPendingTxs() {
+    return new Promise<void> ( async (resolve, reject) => {
+      // rpc method to fetch all pending txs in the mem pool from a gateway node (if there are no pending blocks)
+      const request = await this.network.createGenericMessage('pending-txs-request')
+      const gateway = this.network.getConnectedGateways()[0]
+      this.send(gateway, request)
+
+      this.once('pending-txs-reply', async (pendingTxs: {key: string, value: Record['value']}[]) => {
+        for (let pendingTx of pendingTxs) {
+          // console.log(pendingTx)
+          const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
+          await pendingTxRecord.unpack(null)
+          // console.log(pendingTxRecord)
+          const txRecordTest = await pendingTxRecord.isValid()
+
+          // validate the tx record
+          if (!txRecordTest.valid) {
+            throw new Error(txRecordTest.reason)
+          }
+
+          // then validate the tx data
+          const txTest = await this.ledger.onTx(pendingTxRecord)
+          if (!txTest.valid) {
+            throw new Error(txTest.reason)
+          }
+        }
+        resolve()
+      }) 
     })
   }
 

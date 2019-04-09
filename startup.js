@@ -14,44 +14,60 @@ const startGenesisNode = async (blockTime) => {
   console.group('Starting A Genesis Node'.green)
 
   genesisNode.on('block', block => {
-    console.log(`Genesis node received and is gossiping a new block solution: ${block.key} `.green)
+    console.log(`Genesis node received new block solution via gossip: ${block.key} `.green)
   })
 
+  genesisNode.on('block-solution', block => {
+    console.log(`Genesis node created new block solution: ${block.key} `.green)
+  })
+  let oldTime, newTime = 0
   genesisNode.on('applied-block', block => {
+    if (genesisNode.ledger.isFarming) {
+      console.log(`${getDate()}: BLOCK TIME EXPIRED`.red)
+      newTime = block.value.createdAt
+      console.log('Last block time was: ', newTime)
+      console.log('Elapsed time is: ', (newTime - oldTime)/1000)
+      oldTime = newTime
+    }
     console.log(`Genesis node applied block: ${block.key}`.green)
-    console.log(colors.green('Ledger Balances: ', genesisNode.ledger.clearedBalances))
+    // console.log(colors.green('Ledger Balances: ', genesisNode.ledger.clearedBalances))
   })
 
   genesisNode.on('joined-hosts', (neighbors, activeHosts, tracker) => {
-    console.log(`Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.green)
-    console.log(colors.green('Tracker:', tracker.values()))
+    console.log(`${getDate()}: Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.green)
+    // console.log(colors.green('Tracker:', tracker.values()))
   })
 
   genesisNode.on('message', (sender, type) => {
-    console.log(`Genesis node recieved a ${type} message from ${sender.substring(0,8)}`.green)
+    console.log(`${getDate()}: Genesis node recieved a ${type} message from ${sender.substring(0,8)}`.green)
   })
 
   genesisNode.on('host-added', (hostId) => {
-    console.log(`Genesis node added ${hostId.substring(0,8)} to tracker for valid join`.green)
+    console.log(`${getDate()}: Genesis node added ${hostId.substring(0,8)} to tracker for valid join`.green)
   })
 
   await genesisNode.init('gateway', true)
-  console.log(`Started new node with id: ${genesisNode.wallet.getProfile().id}`.green)
+  console.log(`${getDate()}: Started new node with id: ${genesisNode.wallet.getProfile().id}`.green)
 
   await genesisNode.seedPlot(100000000000)
-  console.log('Genesis node seeded plot'.green)
+  console.log(`${getDate()}: Genesis node seeded plot`.green)
 
   await genesisNode.join(BASE_TCP_PORT, IP_ADDRESS, BASE_WS_PORT)
-  console.log('Bootstrapped the network'.green)
+  console.log(`${getDate()}: Bootstrapped the network`.green)
 
   await genesisNode.startFarmer(blockTime)
-  console.log('Bootstrapped the ledger and started farming'.green)
+  console.log(`${getDate()}: Bootstrapped the ledger and started farming`.green)
 
   await genesisNode.joinHosts()
-  console.log('Bootstrapped the tracker and joined hosts'.green)
+  console.log(`Bootstrapped the tracker and joined hosts`.green)
   
   console.groupEnd()
   return genesisNode
+}
+
+const getDate = () => {
+  const date = new Date()
+  return `${date.getMinutes()}:${date.getSeconds()}:${date.getMilliseconds()}`
 }
 
 const startGatewayNode = async (number, genesisAddress, myTcpPort, myWsPort, blockTime) => {
@@ -60,51 +76,58 @@ const startGatewayNode = async (number, genesisAddress, myTcpPort, myWsPort, blo
   console.log('\n')
   console.group(`Gateway node ${number}`.yellow)
   const gatewayNodeId = gatewayNode.wallet.getProfile().id
-  console.log(`Started new gateway node with id: ${gatewayNodeId}`.yellow)
+  console.log(`${getDate()}: Started new gateway node with id: ${gatewayNodeId}`.yellow)
 
   gatewayNode.on('joined', () => {
-    console.log('Gateway node joined the Network'.yellow)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} joined the Network`.yellow)
   })
 
   gatewayNode.on('message', (sender, type) => {
-    console.log(`GW node ${gatewayNodeId.substring(0,8)} recieved a ${type} message from ${sender.substring(0,8)}`.yellow)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} recieved a ${type} message from ${sender.substring(0,8)}`.yellow)
   })
 
   gatewayNode.on('block', block => {
-    console.log(`GW node ${gatewayNodeId.substring(0,8)} received and is gossiping a new block solution: ${block.key} `.green)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} received a new block solution via gossip: ${block.key} `.yellow)
+  })
+
+  gatewayNode.on('block-solution', block => {
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} created a new block solution: ${block.key} `.yellow)
   })
 
   gatewayNode.on('applied-block', block => {
-    console.log(`GW node applied block: ${block.key}`.yellow)
+    if (gatewayNode.ledger.isFarming) {
+      console.log(`${getDate()}: BLOCK TIME EXPIRED`.red)
+    }
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} applied block: ${block.key}`.yellow)
     // console.log(colors.yellow('Ledger Balances: ', genesisNode.ledger.clearedBalances))
   })
 
   gatewayNode.on('joined-hosts', (neighbors, activeHosts, tracker) => {
-    console.log(`Connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.yellow)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} has connected to ${neighbors} closests hosts out of ${activeHosts} active hosts`.yellow)
     console.log(colors.yellow('Tracker:', tracker.values()))
   })
 
   gatewayNode.on('host-added', (hostId) => {
-    console.log(`GW node ${gatewayNodeId.substring(0,8)} added ${hostId.substring(0,8)} to tracker for valid join`.yellow)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} added ${hostId.substring(0,8)} to tracker for valid join`.yellow)
   })
 
   gatewayNode.on('neighbor-added', (neighborId) => {
-    console.log(`GW node ${gatewayNodeId.substring(0,8)} connected to host-neighbor ${neighborId.substring(0,8)} and received proof signature`.yellow)
+    console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} connected to host-neighbor ${neighborId.substring(0,8)} and received proof signature`.yellow)
   })
 
   await gatewayNode.seedPlot(100000000000)
-  console.log('Gateway node has seeded plot'.yellow)
+  console.log(`${getDate()}: GW ${gatewayNodeId.substring(0,8)} node has seeded plot`.yellow)
 
   await gatewayNode.join(myTcpPort, IP_ADDRESS, myWsPort)
 
   await gatewayNode.startFarmer(blockTime)
-  console.log('Gateway node has synced the ledger and started farming'.yellow)
+  console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} has synced the ledger and started farming`.yellow)
 
   await gatewayNode.pledgeSpace()
-  console.log('Gateway node pledged space'.yellow)
+  console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} pledged space`.yellow)
 
   await gatewayNode.joinHosts()
-  console.log('Gateway node has joined the host network\n'.yellow)
+  console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} has joined the host network\n`.yellow)
 
   console.groupEnd()
 
@@ -172,7 +195,8 @@ const testNetwork = async (nodeCount, blockTime, mode) => {
     }
     
   } catch (e) {
-    throw e
+    console.log('---SUBSPACE ERROR: ejecting warp core before antimiatter breach occurs---'.red)
+    console.error(e)
   }
 }
 
@@ -180,3 +204,23 @@ const nodeCount = process.argv[2] || 3
 const blockTime = process.argv[3] || BLOCK_INTERVAL
 const mode = process.argv[4] || 'full'
 testNetwork(nodeCount, blockTime, mode)
+
+
+// Genesis
+  // GW 1
+    // pledge space (tx 1)
+    // join hosts
+  // GW 2
+    // pledge space (tx 2)
+    // join hosts
+  // GW 3
+    // pledge space (tx 3)
+    // join hosts
+    // didn't see tx 2
+      // wasn't online when it was gossiped
+      // didn't retrieve it from pending block (maybe there wasn't one)
+        // a tx has been gossiped before a node comes online, but there is not a pending block yet 
+        // how can we ensure he get's the backlog from the memory pool?
+        // as a final safeguard, can I just request it if missing
+          // a) once the ledger is synced and after checking for pending blocks, check for pending tx
+          // b) if a tx is not known, request it from your peers to see if anybody has it (or look up on the network)
