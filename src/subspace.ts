@@ -566,9 +566,7 @@ export default class Subspace extends EventEmitter {
             const blockRecordTest = await this.ledger.onBlock(blockRecord)
             if (!blockRecordTest.valid) {
               // console.log(blockRecord)
-              console.log('Most valid pending block is', this.ledger.validBlocks)
-              console.log('My last block is', this.ledger.chain[this.ledger.chain.length - 1])
-              const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0,8)} for new block: ${blockRecord.key.substring(0,8)} with parent ${blockRecord.value.content.previousBlock.substring(0,8)} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0,8)} -- ${blockRecordTest.reason}`
+              const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0,8)} for new block: ${blockRecord.key.substring(0,8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0,8)} -- ${blockRecordTest.reason}`
               throw new Error(errorMessage)
             }
 
@@ -1910,7 +1908,9 @@ export default class Subspace extends EventEmitter {
       gatewayLastBlockId = await this.requestLastBlockId()
     }
     this.ledger.hasLedger = true
+    console.log('Got full ledger, but not pending block')
     await this.onLedger(blockTime, previousBlockRecord)
+    console.log('Got full ledger, with pending block')
   }
 
   private requestLastBlockId(): Promise<string> {
@@ -2168,6 +2168,7 @@ export default class Subspace extends EventEmitter {
         if (pendingBlock) {
           const pendingBlockRecord = Record.readPacked(pendingBlock.key, pendingBlock.value)
           await pendingBlockRecord.unpack(null)
+          console.log('Got pending block header')
           resolve (pendingBlockRecord)
         }
         resolve()
@@ -2186,6 +2187,7 @@ export default class Subspace extends EventEmitter {
       this.once('pending-tx-reply', async (pendingTx: {key: string, value: Record['value']}) => {
         const pendingTxRecord = Record.readPacked(pendingTx.key, pendingTx.value)
         await pendingTxRecord.unpack(null)
+        console.log('Got pending tx for pending block')
         resolve(pendingTxRecord)
       })
     })

@@ -46,6 +46,10 @@ const startGenesisNode = async (blockTime) => {
     console.log(`${getDate()}: Genesis node added ${hostId.substring(0,8)} to tracker for valid join`.green)
   })
 
+  genesisNode.on('host-added', (hostId) => {
+    console.log(`Genesis node added ${hostId.substring(0,8)} to tracker for valid join`.green)
+  })
+
   await genesisNode.init('gateway', true)
   console.log(`${getDate()}: Started new node with id: ${genesisNode.wallet.getProfile().id}`.green)
 
@@ -99,6 +103,11 @@ const startGatewayNode = async (number, genesisAddress, myTcpPort, myWsPort, blo
       console.log(`${getDate()}: BLOCK TIME EXPIRED`.red)
     }
     console.log(`${getDate()}: GW node ${gatewayNodeId.substring(0,8)} applied block: ${block.key}`.yellow)
+    // console.log(colors.yellow('Ledger Balances: ', genesisNode.ledger.clearedBalances))
+  })
+
+  gatewayNode.on('applied-block', block => {
+    console.log(`GW node applied block: ${block.key}`.yellow)
     // console.log(colors.yellow('Ledger Balances: ', genesisNode.ledger.clearedBalances))
   })
 

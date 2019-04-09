@@ -10,7 +10,7 @@ function number64ToUint8Array(number: number): Uint8Array {
   const binaryView = new DataView(binary.buffer);
   const timestampLower = number % MAX_32_BIT;
   binaryView.setUint32(0, (number - timestampLower) / MAX_32_BIT, false);
-  binaryView.setUint32(0, timestampLower, false);
+  binaryView.setUint32(4, timestampLower, false);
   return binary;
 }
 

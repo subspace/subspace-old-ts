@@ -21,7 +21,7 @@
         const binaryView = new DataView(binary.buffer);
         const timestampLower = number % MAX_32_BIT;
         binaryView.setUint32(0, (number - timestampLower) / MAX_32_BIT, false);
-        binaryView.setUint32(0, timestampLower, false);
+        binaryView.setUint32(4, timestampLower, false);
         return binary;
     }
     /**
@@ -558,10 +558,22 @@
                             //     await this.requestPendingTx(txId)
                             //   }
                             // }
+                            // how would we know when if there is a pending block or a 
+                            // node a gossips block 1
+                            // node b receives and waits for the timeout (for block interval)
+                            // node a's interval expires and gossips block 2
+                            // node be is still wail for block 1 to be applied
+                            // when a node get a block, and throws error for invalid parent
+                            // it has no valid pending block, meaning
+                            // it did not apply the last pending block
+                            // or it's delay has not completed yet
+                            // actually ... 
+                            // I've already farmed the same block height 
+                            // because my interval expired too quickly 
                             const blockRecordTest = await this.ledger.onBlock(blockRecord);
                             if (!blockRecordTest.valid) {
                                 // console.log(blockRecord)
-                                const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0, 8)} for new block: ${blockRecord.key.substring(0, 8)} with parent ${blockRecord.value.content.previousBlock.substring(0, 8)} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0, 8)} -- ${blockRecordTest.reason}`;
+                                const errorMessage = `Block validaiton failed at node: ${this.wallet.getProfile().id.substring(0, 8)} for new block: ${blockRecord.key.substring(0, 8)} with parent ${blockRecord.value.content.previousBlock} received from node ${crypto.getHash(blockRecord.value.content.publicKey).substring(0, 8)} -- ${blockRecordTest.reason}`;
                                 throw new Error(errorMessage);
                             }
                             const blockMessage = await this.network.createGenericMessage('block', message.data);
@@ -1668,7 +1680,9 @@
                 gatewayLastBlockId = await this.requestLastBlockId();
             }
             this.ledger.hasLedger = true;
+            console.log('Got full ledger, but not pending block');
             await this.onLedger(blockTime, previousBlockRecord);
+            console.log('Got full ledger, with pending block');
         }
         requestLastBlockId() {
             return new Promise(async (resolve, reject) => {
@@ -1832,7 +1846,7 @@
                 if (blockId) {
                     const blockValue = this.ledger.pendingBlocks.get(blockId);
                     const blockRecord = database_1.Record.readUnpacked(blockId, JSON.parse(JSON.stringify(blockValue)));
-                    await this.ledger.applyBlock(blockRecord);
+                    await this.ledger.applyBlock(blockRecord, timeRemaining);
                 }
             }
             else {
@@ -1896,6 +1910,7 @@
                     if (pendingBlock) {
                         const pendingBlockRecord = database_1.Record.readPacked(pendingBlock.key, pendingBlock.value);
                         await pendingBlockRecord.unpack(null);
+                        console.log('Got pending block header');
                         resolve(pendingBlockRecord);
                     }
                     resolve();
@@ -1911,6 +1926,7 @@
                 this.once('pending-tx-reply', async (pendingTx) => {
                     const pendingTxRecord = database_1.Record.readPacked(pendingTx.key, pendingTx.value);
                     await pendingTxRecord.unpack(null);
+                    console.log('Got pending tx for pending block');
                     resolve(pendingTxRecord);
                 });
             });
